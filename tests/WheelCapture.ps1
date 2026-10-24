@@ -15,7 +15,7 @@ Write-Host '請在會出現反彈的程式裡（例如 Chrome 的長網頁）操
 Write-Host '  1. 用滾輪往下滑，滑一小段就停下，重複約 10 次，盡量重現「最後一下反彈」'
 Write-Host '  2. 再用滾輪往上滑，同樣重複約 10 次'
 Write-Host '  3. 每次停下來後，等一秒再做下一次'
-Write-Host '  4. 看到反彈的那一刻，立刻按一下鍵盤的 F9（會被記錄成標記，F9 在 Chrome 沒有作用）'
+Write-Host '  4. 看到反彈後，在 1 秒內、下一次滑動之前，按一下鍵盤的 F9 當標記（不必在反彈當下，F9 在 Chrome 沒有作用）'
 Write-Host '  5. 也記下是哪個程式、往哪個方向'
 Write-Host ''
 Read-Host '準備好就按 Enter 開始計時' | Out-Null
@@ -29,4 +29,4 @@ $lines = Get-Content $trace -ErrorAction SilentlyContinue | Where-Object { $_ -m
 $lines | ForEach-Object { $_ }
 Remove-Item $trace -ErrorAction SilentlyContinue
 Write-Host ''
-Write-Host ("共 {0} 筆滾輪事件。把上面的輸出貼給 Claude，並說明是哪個程式。F9 標記的那一行附近就是反彈發生的地方。" -f @($lines).Count) -ForegroundColor Green
+Write-Host ("共 {0} 筆滾輪事件。把上面的輸出貼給 Claude，並說明是哪個程式。F9 標記前面最近的一段滾輪事件，就是反彈發生的那一次。" -f @($lines).Count) -ForegroundColor Green
