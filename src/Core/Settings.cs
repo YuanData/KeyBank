@@ -42,6 +42,14 @@ namespace KeyBank.Core
         public int ThresholdDelta = WheelReversalFilter.DefaultThresholdDelta;
     }
 
+    public class DiagnosticsConfig
+    {
+        public bool WheelLog = true;
+        public int BurstGapMs = 250;
+        // Pressing this key writes a MARK line to the wheel log. The key is never swallowed. Empty disables it.
+        public string MarkKey = "F9";
+    }
+
     public class DeviceRule
     {
         public string VendorId = "";
@@ -79,6 +87,7 @@ namespace KeyBank.Core
         public ScrollConfig Scroll;
         public bool AltMouse = false;
         public WheelFilterConfig WheelFilter = new WheelFilterConfig();
+        public DiagnosticsConfig Diagnostics = new DiagnosticsConfig();
         public List<string> ExcludeApps = new List<string>();
         public Dictionary<string, List<string>> AppAltChords;
         public List<DeviceRule> Devices = new List<DeviceRule>();
@@ -183,6 +192,12 @@ namespace KeyBank.Core
             wheel["windowMs"] = wf.WindowMs;
             wheel["thresholdDelta"] = wf.ThresholdDelta;
             root["wheelFilter"] = wheel;
+            DiagnosticsConfig dg = Diagnostics ?? new DiagnosticsConfig();
+            Dictionary<string, object> diag = new Dictionary<string, object>();
+            diag["wheelLog"] = dg.WheelLog;
+            diag["burstGapMs"] = dg.BurstGapMs;
+            diag["markKey"] = dg.MarkKey;
+            root["diagnostics"] = diag;
             root["excludeApps"] = ExcludeApps;
             root["appAltChords"] = EffectiveAppAltChords();
             root["devices"] = Devices.ConvertAll<object>(delegate(DeviceRule d)
@@ -304,6 +319,13 @@ namespace KeyBank.Core
         public int ThresholdDelta;
     }
 
+    public sealed class DiagnosticsRuntime
+    {
+        public bool WheelLog;
+        public int BurstGapMs;
+        public int MarkVk;
+    }
+
     public sealed class Settings
     {
         public ConfigFile File;
@@ -314,6 +336,7 @@ namespace KeyBank.Core
         public ScrollRuntime Scroll;
         public bool AltMouse;
         public WheelFilterRuntime WheelFilter;
+        public DiagnosticsRuntime Diagnostics;
         public HashSet<string> ExcludeApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, HashSet<int>> AppChords = new Dictionary<string, HashSet<int>>();
         public List<DeviceRule> Devices;
@@ -343,6 +366,7 @@ namespace KeyBank.Core
             s.DefaultProfile = f.DefaultProfile ?? "";
             s.AltMouse = f.AltMouse;
             s.WheelFilter = CompileWheelFilter(f.WheelFilter ?? new WheelFilterConfig());
+            s.Diagnostics = CompileDiagnostics(f.Diagnostics ?? new DiagnosticsConfig());
             s.Devices = f.Devices ?? new List<DeviceRule>();
             s.Scroll = CompileScroll(f.EffectiveScroll());
 
@@ -400,6 +424,17 @@ namespace KeyBank.Core
         {
             if (value <= 0 || value > 100)
                 throw new ConfigException(path + " 必須大於 0 且不超過 100。");
+        }
+
+        static DiagnosticsRuntime CompileDiagnostics(DiagnosticsConfig c)
+        {
+            if (c.BurstGapMs < 100 || c.BurstGapMs > 2000)
+                throw new ConfigException("diagnostics.burstGapMs 必須介於 100 到 2000。");
+            DiagnosticsRuntime r = new DiagnosticsRuntime();
+            r.WheelLog = c.WheelLog;
+            r.BurstGapMs = c.BurstGapMs;
+            r.MarkVk = string.IsNullOrEmpty(c.MarkKey) ? 0 : ParseKey(c.MarkKey, "diagnostics.markKey");
+            return r;
         }
 
         static WheelFilterRuntime CompileWheelFilter(WheelFilterConfig c)
@@ -532,6 +567,7 @@ namespace KeyBank.Core
   },
   ""altMouse"": false,
   ""wheelFilter"": { ""enabled"": false, ""windowMs"": 80, ""thresholdDelta"": 120 },
+  ""diagnostics"": { ""wheelLog"": true, ""burstGapMs"": 250, ""markKey"": ""F9"" },
   ""excludeApps"": [],
   ""appAltChords"": {
     ""chrome.exe"": [""W"", ""T"", ""N"", ""R"", ""L"", ""D"", ""1"", ""2"", ""3"", ""4"", ""5"", ""6"", ""7"", ""8"", ""9"", ""0"", ""Equals"", ""Minus""]

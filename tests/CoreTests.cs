@@ -102,6 +102,82 @@ static class CoreTests
         return new Pipeline(Settings.Load(json), profile, delegate { return currentApp; });
     }
 
+    static string Burst(WheelBurstRecorder r, long arrival, long hardware, int delta, bool dropped)
+    {
+        return r.Add(arrival, hardware, delta, dropped, "chrome", "W") ?? "-";
+    }
+
+    static void WheelLogTests()
+    {
+        WheelBurstRecorder r = new WheelBurstRecorder(250);
+        Expect("log: first event starts a burst, returns nothing", "-", Burst(r, 0, 0, -120, false));
+        Burst(r, 10, 10, -120, false);
+        Burst(r, 20, 20, -120, false);
+        Burst(r, 30, 30, -120, false);
+        Expect("log: a burst is not finished inside the gap", "-", r.Poll(280) ?? "-");
+        Expect("log: steady burst summary",
+            "W app=chrome dir=down n=4 sum=-480 arr=30ms hw=30ms maxHwGap=10ms tailHw=10,10,10 tailArr=10,10,10 clump=0 rev=0",
+            r.Poll(281) ?? "-");
+        Expect("log: a finished burst is reported once", "-", r.Poll(10000) ?? "-");
+        Expect("log: recorder is idle after the report", "False", r.Active.ToString());
+
+        r = new WheelBurstRecorder(250);
+        Burst(r, 0, 0, 120, false);
+        Burst(r, 10, 10, 120, false);
+        Expect("log: the next burst's first event returns the previous summary",
+            "W app=chrome dir=up n=2 sum=240 arr=10ms hw=10ms maxHwGap=10ms tailHw=10 tailArr=10 clump=0 rev=0",
+            Burst(r, 400, 400, 120, false));
+        Expect("log: the new burst is active", "True", r.Active.ToString());
+
+        r = new WheelBurstRecorder(250);
+        for (int i = 0; i < 10; i++)
+            Burst(r, i * 5, i * 5, -120, false);
+        Expect("log: only the last six gaps are kept",
+            "W app=chrome dir=down n=10 sum=-1200 arr=45ms hw=45ms maxHwGap=5ms tailHw=5,5,5,5,5,5 tailArr=5,5,5,5,5,5 clump=0 rev=0",
+            r.Flush() ?? "-");
+        Expect("log: flush with nothing active", "-", r.Flush() ?? "-");
+
+        r = new WheelBurstRecorder(250);
+        Burst(r, 100, 0, -120, false);
+        Burst(r, 100, 8, -120, false);
+        Burst(r, 101, 16, -120, false);
+        Burst(r, 103, 24, -120, false);
+        Expect("log: events bunched on arrival but regular in hardware are counted as clumps",
+            "W app=chrome dir=down n=4 sum=-480 arr=3ms hw=24ms maxHwGap=8ms tailHw=8,8,8 tailArr=0,1,2 clump=3 rev=0",
+            r.Flush() ?? "-");
+
+        r = new WheelBurstRecorder(250);
+        Burst(r, 0, 0, -120, false);
+        Burst(r, 10, 10, -120, false);
+        Burst(r, 40, 40, 120, true);
+        Expect("log: a reverse event is listed with its offset and verdict",
+            "W app=chrome dir=mixed n=3 sum=-120 arr=40ms hw=40ms maxHwGap=30ms tailHw=10,30 tailArr=10,30 clump=0 rev=1 +120@40ms:drop",
+            r.Flush() ?? "-");
+
+        r = new WheelBurstRecorder(250);
+        Burst(r, 0, 0, -120, false);
+        for (int i = 1; i <= 10; i++)
+            Burst(r, i * 4, i * 4, i % 2 == 0 ? -30 : 30, i % 3 == 0);
+        string many = r.Flush() ?? "-";
+        Expect("log: reverse count is exact but the list is capped at eight", "True",
+            (many.Contains("rev=5 ") || many.Contains("rev=5")).ToString());
+
+        r = new WheelBurstRecorder(250);
+        Expect("log: a zero delta is ignored", "-", Burst(r, 0, 0, 0, false));
+        Expect("log: a zero delta starts no burst", "False", r.Active.ToString());
+        Expect("log: mark line", "W MARK app=chrome", WheelBurstRecorder.MarkLine("W", "chrome"));
+
+        Settings d = Settings.Load(Cfg);
+        Expect("diagnostics: defaults", "True/250/120", d.Diagnostics.WheelLog + "/" + d.Diagnostics.BurstGapMs + "/" + d.Diagnostics.MarkVk);
+        Settings off = Settings.Load(Cfg.Replace("\"markKey\": \"F9\"", "\"markKey\": \"\"").Replace("\"wheelLog\": true", "\"wheelLog\": false"));
+        Expect("diagnostics: empty mark key disables it, log can be turned off", "False/0", off.Diagnostics.WheelLog + "/" + off.Diagnostics.MarkVk);
+        Expect("diagnostics: a file without the section gets the defaults", "True",
+            Settings.Load(Cfg.Replace("  \"diagnostics\": { \"wheelLog\": true, \"burstGapMs\": 250, \"markKey\": \"F9\" },\n", "")).Diagnostics.WheelLog.ToString());
+        Expect("diagnostics: written back by ToJson", "True", d.File.ToJson().Contains("\"diagnostics\"").ToString());
+        ExpectThrows("diagnostics: unknown mark key", "diagnostics.markKey", Cfg.Replace("\"markKey\": \"F9\"", "\"markKey\": \"Nope\""));
+        ExpectThrows("diagnostics: burst gap too small", "diagnostics.burstGapMs", Cfg.Replace("\"burstGapMs\": 250", "\"burstGapMs\": 50"));
+    }
+
     static void WheelFilterTests()
     {
         const int Up = 120, Down = -120;
@@ -465,6 +541,7 @@ static class CoreTests
         Expect("legacy: upgraded file is no longer an upgrade", "False", Settings.Load(upgraded).Upgraded.ToString());
 
         WheelFilterTests();
+        WheelLogTests();
 
         ExpectThrows("bad key name", "不認得按鍵名稱 'Foo'", Cfg.Replace("\"to\": \"Home\"", "\"to\": \"Foo\""));
         ExpectThrows("bad chrome chord", "appAltChords.chrome.exe[0]", Cfg.Replace("\"chrome.exe\": [\"W\"", "\"chrome.exe\": [\"Nope\""));

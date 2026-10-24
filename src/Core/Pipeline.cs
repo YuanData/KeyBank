@@ -29,6 +29,8 @@ namespace KeyBank.Core
         public int Delta;
         // Set by the hook for input some other program injected. KeyBank's own events never reach the pipeline.
         public bool Injected;
+        // The mouse's own event time in ms (MSLLHOOKSTRUCT.time), for diagnostics only.
+        public long HardwareMs;
 
         public static MouseEvent Click(MouseButton button, bool down)
         {
