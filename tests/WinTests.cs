@@ -55,6 +55,7 @@ static class WinTests
         HookTests();
         WatchdogTests();
         EngineTests();
+        MouseQueueTests();
         Console.WriteLine("passed " + passed + ", failed " + failed);
         return failed == 0 ? 0 : 1;
     }
@@ -681,6 +682,120 @@ static class WinTests
         {
             if (engine != null)
                 engine.Shutdown();
+            CrashLog.Path = oldLog;
+            try { Directory.Delete(dir, true); } catch (IOException) { }
+        }
+    }
+
+    sealed class SendLog
+    {
+        public readonly object Gate = new object();
+        public readonly List<string> Calls = new List<string>();
+        public readonly List<int> Threads = new List<int>();
+        public int InMouse;
+        public int Count { get { lock (Gate) return Calls.Count; } }
+        public string All { get { lock (Gate) return string.Join(" | ", Calls.ToArray()); } }
+    }
+
+    static EngineOptions Recording(SendLog log)
+    {
+        EngineOptions o = new EngineOptions();
+        o.Send = delegate(List<Out> outs)
+        {
+            string text = string.Join(" ", outs.ConvertAll<string>(delegate(Out x) { return x.ToString(); }).ToArray());
+            lock (log.Gate)
+            {
+                log.Calls.Add(text);
+                log.Threads.Add(Thread.CurrentThread.ManagedThreadId);
+                if (Engine.InMouseCallbackNow)
+                    log.InMouse++;
+            }
+            return outs.Count;
+        };
+        return o;
+    }
+
+    static void MouseQueueTests()
+    {
+        string dir = TempDir();
+        string oldLog = CrashLog.Path;
+        CrashLog.Path = Path.Combine(dir, "crash.log");
+        Engine e = null;
+        try
+        {
+            string path = Path.Combine(dir, "config.json");
+
+            File.WriteAllText(path, ConfigJson(true, "p", false));
+            SendLog log = new SendLog();
+            e = new Engine(path, false, Recording(log));
+            Expect("queue: alt down passes", false, e.KeyForTest(Vk.LAlt, true));
+            Expect("queue: nothing sent for alt down", 0, log.Count);
+
+            Expect("queue: click down swallowed", true, e.MouseForTest(MouseEvent.Click(MouseButton.Left, true)));
+            Expect("queue: send happened outside the callback", true, WaitFor(delegate { return log.Count >= 1; }, 2000));
+            Pump(100);
+            Expect("queue: exactly one send for click down", 1, log.Count);
+            Expect("queue: ctrl click sequence", "+LeftCtrl -LeftAlt +LeftBtn", log.Calls[0]);
+            Expect("queue: sent on the hook thread", e.HookThreadManagedId, log.Threads[0]);
+            Expect("queue: not inside a mouse callback", 0, log.InMouse);
+            Expect("queue: guard counter zero", 0, e.InjectionsInMouseCallback);
+
+            Expect("queue: click up swallowed", true, e.MouseForTest(MouseEvent.Click(MouseButton.Left, false)));
+            Expect("queue: up injected", true, WaitFor(delegate { return log.Count >= 2; }, 2000));
+            Expect("queue: up after down", "-LeftBtn", log.Calls[1]);
+            Expect("queue: alt up swallowed after chord", true, e.KeyForTest(Vk.LAlt, false));
+            Pump(100);
+            Expect("queue: alt up releases ctrl", true, log.Count == 3 && log.Calls[2] == "-LeftCtrl");
+            Expect("queue: still not inside a mouse callback", 0, log.InMouse);
+            Expect("queue: guard counter still zero", 0, e.InjectionsInMouseCallback);
+
+            Expect("queue: alt down again", false, e.KeyForTest(Vk.LAlt, true));
+            int before = log.Count;
+            Expect("queue: alt wheel swallowed", true, e.MouseForTest(MouseEvent.Wheel(-120)));
+            Expect("queue: alt wheel goes through the queue", true, WaitFor(delegate { return log.Count > before; }, 2000));
+            Expect("queue: alt wheel sequence", "+LeftCtrl -LeftAlt wheel(-120)", log.Calls[before]);
+            Expect("queue: wheel send outside callback", 0, log.InMouse);
+            e.KeyForTest(Vk.LAlt, false);
+            e.Shutdown();
+            ShutdownChecks("queue alt", e);
+            Expect("queue: guard zero at the end", 0, e.InjectionsInMouseCallback);
+            e = null;
+
+            File.WriteAllText(path, ConfigJson(false, true, "p", false));
+            SendLog wlog = new SendLog();
+            e = new Engine(path, false, Recording(wlog));
+            Expect("queue: wheel passes first", false, e.MouseForTest(MouseEvent.Wheel(120)));
+            Expect("queue: reverse wheel dropped", true, e.MouseForTest(MouseEvent.Wheel(-30)));
+            Pump(150);
+            Expect("queue: dropped wheel sends nothing", 0, wlog.Count);
+            e.Shutdown();
+            e = null;
+
+            File.WriteAllText(path, ConfigJson(true, "p", false));
+            SendLog slog = new SendLog();
+            e = new Engine(path, false, Recording(slog));
+            e.KeyForTest(Vk.LAlt, true);
+            e.PauseMouseDrain = true;
+            e.MouseForTest(MouseEvent.Click(MouseButton.Left, true));
+            Pump(100);
+            Expect("queue: output is pending while paused", 1, e.PendingMouseOutputs);
+            Expect("queue: nothing sent while paused", 0, slog.Count);
+            e.Shutdown();
+            Expect("queue: shutdown discarded pending output", 0, e.PendingMouseOutputs);
+            Expect("queue: only releases were sent", "-LeftBtn -LeftCtrl", slog.All);
+            e.Shutdown();
+            Expect("queue: second shutdown harmless", "-LeftBtn -LeftCtrl", slog.All);
+            ShutdownChecks("queue shutdown", e);
+            Expect("queue: no guard hits", 0, e.InjectionsInMouseCallback);
+            e = null;
+
+            string crash = File.Exists(CrashLog.Path) ? File.ReadAllText(CrashLog.Path) : "";
+            Expect("queue: no injection-in-callback line logged", false, crash.Contains("injection inside mouse callback"));
+        }
+        finally
+        {
+            if (e != null)
+                e.Shutdown();
             CrashLog.Path = oldLog;
             try { Directory.Delete(dir, true); } catch (IOException) { }
         }

@@ -31,6 +31,7 @@ namespace KeyBank.Win
         const int StartTimeoutMs = 15000;
         const uint MsgSettings = Native.WM_APP + 1;
         const uint MsgWork = Native.WM_APP + 2;
+        const uint MsgEmit = Native.WM_APP + 3;
 
         struct TraceEntry
         {
@@ -53,6 +54,7 @@ namespace KeyBank.Win
         readonly bool trace;
         readonly ConcurrentQueue<TraceEntry> traceQueue = new ConcurrentQueue<TraceEntry>();
         readonly ConcurrentQueue<Action> work = new ConcurrentQueue<Action>();
+        readonly ConcurrentQueue<List<Out>> mouseOut = new ConcurrentQueue<List<Out>>();
         readonly string tracePath = Path.Combine(Path.GetTempPath(), "KeyBank.trace.log");
 
         readonly Thread hookThread;
@@ -70,6 +72,11 @@ namespace KeyBank.Win
         int ticks;
         long lastSlowLogMs = long.MinValue / 2;
         long lastLoopErrorMs = long.MinValue / 2;
+        long lastGuardLogMs = long.MinValue / 2;
+
+        [ThreadStatic] static bool inMouseCallback;
+        int injectionInMouseCallback;
+        volatile bool pauseMouseDrain;
 
         // Written by the hook thread, read from any thread.
         volatile Pipeline pipeline;
@@ -246,7 +253,69 @@ namespace KeyBank.Win
         {
             if (outs == null || outs.Count == 0)
                 return 0;
+            if (inMouseCallback)
+                NoteInjectionInMouseCallback();
             return opt.Send(outs);
+        }
+
+        // SendInput inside the low-level mouse hook callback has to pass through this very hook, whose thread is
+        // blocked in SendInput, so it only returns when the system hook timeout fires. Keep this visible.
+        void NoteInjectionInMouseCallback()
+        {
+            Interlocked.Increment(ref injectionInMouseCallback);
+            long now = NowMs();
+            if (now - lastGuardLogMs < 5000)
+                return;
+            lastGuardLogMs = now;
+            CrashLog.Write("injection inside mouse callback");
+        }
+
+        internal int InjectionsInMouseCallback
+        {
+            get { return Volatile.Read(ref injectionInMouseCallback); }
+        }
+
+        internal static bool InMouseCallbackNow
+        {
+            get { return inMouseCallback; }
+        }
+
+        internal int PendingMouseOutputs
+        {
+            get { return mouseOut.Count; }
+        }
+
+        internal bool PauseMouseDrain
+        {
+            get { return pauseMouseDrain; }
+            set { pauseMouseDrain = value; }
+        }
+
+        // Hook thread only, outside any hook callback.
+        void DrainMouseOut()
+        {
+            if (pauseMouseDrain)
+                return;
+            List<Out> batch;
+            while (!shutdownStarted && mouseOut.TryDequeue(out batch))
+            {
+                try
+                {
+                    Send(batch);
+                }
+                catch (Exception ex)
+                {
+                    CrashLog.Write("mouse inject failed: " + ex);
+                }
+            }
+        }
+
+        void DiscardMouseOut()
+        {
+            List<Out> dropped;
+            while (mouseOut.TryDequeue(out dropped))
+            {
+            }
         }
 
         // ---- hook thread ----
@@ -327,6 +396,12 @@ namespace KeyBank.Win
                             OnTick();
                             continue;
                         }
+                        if (m.message == MsgEmit)
+                        {
+                            Beat();
+                            DrainMouseOut();
+                            continue;
+                        }
                         if (m.message == MsgSettings || m.message == MsgWork)
                         {
                             Beat();
@@ -370,6 +445,7 @@ namespace KeyBank.Win
             catch (Exception)
             {
             }
+            DiscardMouseOut();
             try
             {
                 Pipeline p = pipeline;
@@ -487,6 +563,7 @@ namespace KeyBank.Win
             if (!object.ReferenceEquals(next, cur))
             {
                 foreground.Reset();
+                DiscardMouseOut();
                 Send(pipeline.ReleaseAll());
                 cur = next;
                 pipeline = NewPipeline();
@@ -542,12 +619,14 @@ namespace KeyBank.Win
         {
             long t0 = Stopwatch.GetTimestamp();
             Beat();
+            inMouseCallback = true;
             try
             {
                 return HandleMouse(e);
             }
             finally
             {
+                inMouseCallback = false;
                 EndCallback(t0, "mouse");
             }
         }
@@ -583,7 +662,7 @@ namespace KeyBank.Win
             return true;
         }
 
-        // Runs inside the hook callback for button and wheel events only. Mouse moves never get here.
+        // Runs inside the hook callback for button and wheel events only. Mouse moves never get here. Injection is queued, not sent.
         bool HandleMouse(MouseEvent e)
         {
             Settings s = cur;
@@ -608,7 +687,14 @@ namespace KeyBank.Win
                 traceQueue.Enqueue(t);
             }
 
-            Send(r.Emit);
+            // Never SendInput here: the injected events pass through this hook and would stall the callback until
+            // the system timeout. The FIFO keeps Down and Up in order. A later physical event that passes through
+            // unchanged can in theory overtake a queued injection by microseconds, which is accepted.
+            if (r.Emit.Count > 0)
+            {
+                mouseOut.Enqueue(new List<Out>(r.Emit));
+                PostToHook(MsgEmit);
+            }
             return true;
         }
 
@@ -627,6 +713,7 @@ namespace KeyBank.Win
             long t0 = Stopwatch.GetTimestamp();
             Beat();
             DrainWork();
+            DrainMouseOut();
             ApplyPendingSettings();
 
             List<Out> fired = pipeline.Tick(clock.ElapsedMilliseconds);
@@ -832,6 +919,7 @@ namespace KeyBank.Win
                         CrashLog.Write("Shutdown: hook thread did not exit within 1 s, hooks removed from the calling thread");
                         try
                         {
+                            DiscardMouseOut();
                             Pipeline p = pipeline;
                             if (p != null)
                                 Send(p.ReleaseAll());
