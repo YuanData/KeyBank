@@ -4,6 +4,8 @@ using KeyBank.Core;
 
 static class CoreTests
 {
+    static readonly string Cfg = DefaultConfig.Json.Replace("\r\n", "\n");
+
     static int failed;
     static int passed;
     static long clock;
@@ -34,12 +36,31 @@ static class CoreTests
 
     static string Click(Pipeline p, MouseButton b, bool down)
     {
-        return p.ProcessMouse(MouseEvent.Click(b, down)).ToString();
+        return p.ProcessMouse(MouseEvent.Click(b, down), clock).ToString();
     }
 
     static string Wheel(Pipeline p, int delta)
     {
-        return p.ProcessMouse(MouseEvent.Wheel(delta)).ToString();
+        return p.ProcessMouse(MouseEvent.Wheel(delta), clock).ToString();
+    }
+
+    static string Wheel(Pipeline p, int delta, long at)
+    {
+        clock = at;
+        return Wheel(p, delta);
+    }
+
+    static string Verdict(WheelReversalFilter f, int delta, long at)
+    {
+        return f.ShouldDrop(delta, at) ? "drop" : "pass";
+    }
+
+    static string WheelRun(WheelReversalFilter f, params long[] deltasAndTimes)
+    {
+        List<string> verdicts = new List<string>();
+        for (int i = 0; i + 1 < deltasAndTimes.Length; i += 2)
+            verdicts.Add(Verdict(f, (int)deltasAndTimes[i], deltasAndTimes[i + 1]));
+        return string.Join(" ", verdicts.ToArray());
     }
 
     static void Expect(string name, string expected, string actual)
@@ -71,7 +92,7 @@ static class CoreTests
 
     static Pipeline New(string profile)
     {
-        return NewWith(DefaultConfig.Json.Replace("\"altMouse\": false", "\"altMouse\": true"), profile);
+        return NewWith(Cfg.Replace("\"altMouse\": false", "\"altMouse\": true"), profile);
     }
 
     static Pipeline NewWith(string json, string profile)
@@ -81,9 +102,107 @@ static class CoreTests
         return new Pipeline(Settings.Load(json), profile, delegate { return currentApp; });
     }
 
+    static void WheelFilterTests()
+    {
+        const int Up = 120, Down = -120;
+
+        WheelReversalFilter f = new WheelReversalFilter(80, 120);
+        Expect("wheel: steady scroll down all passes", "pass pass pass pass pass",
+            WheelRun(f, Down, 0, Down, 10, Down, 20, Down, 30, Down, 40));
+
+        f = new WheelReversalFilter(80, 120);
+        Expect("wheel: one reverse tick inside a down scroll is dropped", "pass drop pass",
+            WheelRun(f, Down, 0, Up, 10, Down, 20));
+
+        f = new WheelReversalFilter(80, 120);
+        Expect("wheel: mirrored, a down tick inside an up scroll is dropped", "pass drop pass",
+            WheelRun(f, Up, 0, Down, 10, Up, 20));
+
+        f = new WheelReversalFilter(80, 120);
+        Expect("wheel: dropped noise does not carry over to the next noise", "pass drop pass drop pass drop",
+            WheelRun(f, Down, 0, Up, 10, Down, 20, Up, 30, Down, 40, Up, 50));
+
+        f = new WheelReversalFilter(80, 120);
+        Expect("wheel: two reverse ticks in the window are a real reversal", "pass drop pass pass",
+            WheelRun(f, Down, 0, Up, 10, Up, 20, Up, 30));
+        Expect("wheel: after the switch the old direction is now the noise", "drop pass",
+            WheelRun(f, Down, 40, Up, 50));
+
+        f = new WheelReversalFilter(80, 120);
+        Expect("wheel: reverse exactly at the window edge is still a candidate", "pass drop",
+            WheelRun(f, Down, 0, Up, 80));
+        f = new WheelReversalFilter(80, 120);
+        Expect("wheel: reverse one ms after the window starts a new scroll", "pass pass",
+            WheelRun(f, Down, 0, Up, 81));
+
+        f = new WheelReversalFilter(80, 120);
+        Expect("wheel: scrolling resumes after a stop", "pass pass pass",
+            WheelRun(f, Down, 0, Down, 500, Up, 900));
+
+        f = new WheelReversalFilter(80, 120);
+        Expect("wheel: small deltas add up to the threshold, the next one passes", "pass drop drop drop drop pass",
+            WheelRun(f, Down, 0, 30, 5, 30, 10, 30, 15, 30, 20, 30, 25));
+
+        f = new WheelReversalFilter(80, 120);
+        Expect("wheel: one large reverse event is a real reversal", "pass pass",
+            WheelRun(f, Down, 0, 240, 10));
+
+        f = new WheelReversalFilter(80, 120);
+        Expect("wheel: dropped events never move the clock", "pass drop pass",
+            WheelRun(f, Down, 0, Up, 50, Up, 100));
+
+        f = new WheelReversalFilter(80, 120);
+        Expect("wheel: a zero delta changes nothing", "pass pass drop",
+            WheelRun(f, Down, 0, 0, 10, Up, 20));
+        Expect("wheel: primary direction is tracked", "-1", f.PrimaryDirection.ToString());
+
+        f = new WheelReversalFilter(200, 300);
+        Expect("wheel: custom window and threshold", "pass drop drop pass",
+            WheelRun(f, Down, 0, Up, 150, Up, 160, Up, 170));
+
+        f = new WheelReversalFilter(80, 120);
+        WheelRun(f, Down, 0);
+        f.Reset();
+        Expect("wheel: reset forgets the direction", "pass", WheelRun(f, Up, 10));
+
+        Expect("wheel: defaults are 80 ms and 120", "80/120", WheelReversalFilter.DefaultWindowMs + "/" + WheelReversalFilter.DefaultThresholdDelta);
+
+        string on = Cfg.Replace("\"wheelFilter\": { \"enabled\": false", "\"wheelFilter\": { \"enabled\": true");
+        Expect("wheel: off by default in the shipped config", "False", Settings.Load(Cfg).WheelFilter.Enabled.ToString());
+        Expect("wheel: config values are read", "True/80/120",
+            Settings.Load(on).WheelFilter.Enabled + "/" + Settings.Load(on).WheelFilter.WindowMs + "/" + Settings.Load(on).WheelFilter.ThresholdDelta);
+        Expect("wheel: a file without the section keeps it off", "False",
+            Settings.Load(Cfg.Replace("  \"wheelFilter\": { \"enabled\": false, \"windowMs\": 80, \"thresholdDelta\": 120 },\n", "")).WheelFilter.Enabled.ToString());
+        Expect("wheel: written back by ToJson", "True", Settings.Load(on).File.ToJson().Contains("\"wheelFilter\"").ToString());
+
+        Pipeline p = NewWith(Cfg, "full");
+        Expect("pipeline wheel: filter off passes reverse noise", "pass pass",
+            Wheel(p, Down, 0) + " " + Wheel(p, Up, 10));
+
+        p = NewWith(on, "full");
+        Expect("pipeline wheel: noise swallowed", "pass swallow pass",
+            Wheel(p, Down, 0) + " " + Wheel(p, Up, 10) + " " + Wheel(p, Down, 20));
+        MouseEvent injected = MouseEvent.Wheel(Up);
+        injected.Injected = true;
+        clock = 30;
+        Expect("pipeline wheel: input injected by another program is never filtered", "pass", p.ProcessMouse(injected, clock).ToString());
+        Expect("pipeline wheel: buttons are untouched", "pass", Click(p, MouseButton.Left, true));
+
+        string both = on.Replace("\"altMouse\": false", "\"altMouse\": true");
+        p = NewWith(both, "full");
+        Send(p, "+LeftAlt");
+        Expect("pipeline wheel: alt+wheel still becomes ctrl+wheel", "+LeftCtrl -LeftAlt wheel(-120)", Wheel(p, Down, 0));
+        Expect("pipeline wheel: noise during alt+wheel is dropped without touching alt state", "swallow", Wheel(p, Up, 10));
+        Expect("pipeline wheel: the next real tick continues as ctrl+wheel", "wheel(-120)", Wheel(p, Down, 20));
+        Expect("pipeline wheel: alt release still lets go of ctrl", "-LeftCtrl", Send(p, "-LeftAlt"));
+
+        ExpectThrows("wheel window too small", "wheelFilter.windowMs", Cfg.Replace("\"windowMs\": 80", "\"windowMs\": 5"));
+        ExpectThrows("wheel threshold zero", "wheelFilter.thresholdDelta", Cfg.Replace("\"thresholdDelta\": 120", "\"thresholdDelta\": 0"));
+    }
+
     static void Main()
     {
-        Settings s = Settings.Load(DefaultConfig.Json);
+        Settings s = Settings.Load(Cfg);
         Expect("device 3434 -> full", "full", s.ResolveProfile("3434"));
         Expect("device 046d (case-insensitive) -> mini", "mini", s.ResolveProfile("046d"));
         Expect("unknown device -> default", "full", s.ResolveProfile("FFFF"));
@@ -202,7 +321,7 @@ static class CoreTests
         Send(p, "+LeftAlt");
         Expect("mouse: physical ctrl+alt+click untouched", "pass", Click(p, MouseButton.Left, true));
 
-        p = NewWith(DefaultConfig.Json, "full");
+        p = NewWith(Cfg, "full");
         Send(p, "+LeftAlt");
         Expect("mouse: off by default", "pass", Click(p, MouseButton.Left, true));
         Expect("mouse: default config has altMouse off", "False", s.AltMouse.ToString());
@@ -264,7 +383,7 @@ static class CoreTests
         Expect("full: Home passes", "pass", Send(p, "+Home"));
         Send(p, "-Home");
 
-        string appScroll = DefaultConfig.Json.Replace("\"apps\": {}", "\"apps\": { \"Notepad++.exe\": { \"stepTicks\": 6, \"pageTicks\": 12 } }");
+        string appScroll = Cfg.Replace("\"apps\": {}", "\"apps\": { \"Notepad++.exe\": { \"stepTicks\": 6, \"pageTicks\": 12 } }");
         p = NewWith(appScroll, "full");
         currentApp = "notepad++.exe";
         Expect("scroll: per-app step", "scrollDown(6)", Send(p, "+PageDown"));
@@ -279,7 +398,7 @@ static class CoreTests
         currentApp = "chrome.exe";
         Expect("scroll: other apps use the default", "scrollDown(4)", Send(p, "+PageDown"));
 
-        p = NewWith(DefaultConfig.Json.Replace("\"enabled\": true,\n    \"stepTicks\"", "\"enabled\": false,\n    \"stepTicks\""), "full");
+        p = NewWith(Cfg.Replace("\"enabled\": true,\n    \"stepTicks\"", "\"enabled\": false,\n    \"stepTicks\""), "full");
         Expect("scroll: disabled passes PgDn through", "pass", Send(p, "+PageDown"));
 
         p = New("mini");
@@ -333,7 +452,7 @@ static class CoreTests
         Send(p, "+C");
         Expect("setProfile releases injected ctrl", "-C -LeftCtrl", Join(p.SetProfile("full")));
 
-        string legacy = DefaultConfig.Json
+        string legacy = Cfg
             .Replace("\"scroll\": {\n    \"enabled\": true,\n    \"stepTicks\": 4,\n    \"pageTicks\": 8,\n    \"burstTaps\": 3,\n    \"burstIntervalMs\": 400,\n    \"holdRepeatsPerSec\": 8,\n    \"apps\": {}\n  },", "\"halfPage\": { \"enabled\": true, \"fraction\": \"1/3\", \"pageTicks\": 9 },");
         legacy = legacy.Substring(0, legacy.IndexOf("\"appAltChords\"")) + legacy.Substring(legacy.IndexOf("\"devices\""));
         Settings old = Settings.Load(legacy);
@@ -345,14 +464,16 @@ static class CoreTests
         Expect("legacy: written file has the new sections", "True", (upgraded.Contains("\"scroll\"") && upgraded.Contains("\"appAltChords\"") && !upgraded.Contains("halfPage")).ToString());
         Expect("legacy: upgraded file is no longer an upgrade", "False", Settings.Load(upgraded).Upgraded.ToString());
 
-        ExpectThrows("bad key name", "不認得按鍵名稱 'Foo'", DefaultConfig.Json.Replace("\"to\": \"Home\"", "\"to\": \"Foo\""));
-        ExpectThrows("bad chrome chord", "appAltChords.chrome.exe[0]", DefaultConfig.Json.Replace("\"chrome.exe\": [\"W\"", "\"chrome.exe\": [\"Nope\""));
-        ExpectThrows("unknown default profile", "defaultProfile", DefaultConfig.Json.Replace("\"defaultProfile\": \"full\"", "\"defaultProfile\": \"nope\""));
-        ExpectThrows("hold too short", "holdMs", DefaultConfig.Json.Replace("\"holdMs\": 500", "\"holdMs\": 10"));
-        ExpectThrows("step ticks zero", "scroll.stepTicks", DefaultConfig.Json.Replace("\"stepTicks\": 4", "\"stepTicks\": 0"));
-        ExpectThrows("burst taps too small", "scroll.burstTaps", DefaultConfig.Json.Replace("\"burstTaps\": 3", "\"burstTaps\": 1"));
-        ExpectThrows("burst interval too long", "scroll.burstIntervalMs", DefaultConfig.Json.Replace("\"burstIntervalMs\": 400", "\"burstIntervalMs\": 9000"));
-        ExpectThrows("hold rate too high", "scroll.holdRepeatsPerSec", DefaultConfig.Json.Replace("\"holdRepeatsPerSec\": 8", "\"holdRepeatsPerSec\": 99"));
+        WheelFilterTests();
+
+        ExpectThrows("bad key name", "不認得按鍵名稱 'Foo'", Cfg.Replace("\"to\": \"Home\"", "\"to\": \"Foo\""));
+        ExpectThrows("bad chrome chord", "appAltChords.chrome.exe[0]", Cfg.Replace("\"chrome.exe\": [\"W\"", "\"chrome.exe\": [\"Nope\""));
+        ExpectThrows("unknown default profile", "defaultProfile", Cfg.Replace("\"defaultProfile\": \"full\"", "\"defaultProfile\": \"nope\""));
+        ExpectThrows("hold too short", "holdMs", Cfg.Replace("\"holdMs\": 500", "\"holdMs\": 10"));
+        ExpectThrows("step ticks zero", "scroll.stepTicks", Cfg.Replace("\"stepTicks\": 4", "\"stepTicks\": 0"));
+        ExpectThrows("burst taps too small", "scroll.burstTaps", Cfg.Replace("\"burstTaps\": 3", "\"burstTaps\": 1"));
+        ExpectThrows("burst interval too long", "scroll.burstIntervalMs", Cfg.Replace("\"burstIntervalMs\": 400", "\"burstIntervalMs\": 9000"));
+        ExpectThrows("hold rate too high", "scroll.holdRepeatsPerSec", Cfg.Replace("\"holdRepeatsPerSec\": 8", "\"holdRepeatsPerSec\": 99"));
         ExpectThrows("invalid json", "JSON", "{ not json");
 
         Console.WriteLine("passed " + passed + ", failed " + failed);

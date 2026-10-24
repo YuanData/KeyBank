@@ -35,6 +35,13 @@ namespace KeyBank.Core
         public Dictionary<string, ScrollAppConfig> Apps = new Dictionary<string, ScrollAppConfig>();
     }
 
+    public class WheelFilterConfig
+    {
+        public bool Enabled = false;
+        public int WindowMs = WheelReversalFilter.DefaultWindowMs;
+        public int ThresholdDelta = WheelReversalFilter.DefaultThresholdDelta;
+    }
+
     public class DeviceRule
     {
         public string VendorId = "";
@@ -71,6 +78,7 @@ namespace KeyBank.Core
         public HalfPageConfig HalfPage;
         public ScrollConfig Scroll;
         public bool AltMouse = false;
+        public WheelFilterConfig WheelFilter = new WheelFilterConfig();
         public List<string> ExcludeApps = new List<string>();
         public Dictionary<string, List<string>> AppAltChords;
         public List<DeviceRule> Devices = new List<DeviceRule>();
@@ -169,6 +177,12 @@ namespace KeyBank.Core
             root["defaultProfile"] = DefaultProfile;
             root["scroll"] = scroll;
             root["altMouse"] = AltMouse;
+            WheelFilterConfig wf = WheelFilter ?? new WheelFilterConfig();
+            Dictionary<string, object> wheel = new Dictionary<string, object>();
+            wheel["enabled"] = wf.Enabled;
+            wheel["windowMs"] = wf.WindowMs;
+            wheel["thresholdDelta"] = wf.ThresholdDelta;
+            root["wheelFilter"] = wheel;
             root["excludeApps"] = ExcludeApps;
             root["appAltChords"] = EffectiveAppAltChords();
             root["devices"] = Devices.ConvertAll<object>(delegate(DeviceRule d)
@@ -283,6 +297,13 @@ namespace KeyBank.Core
         }
     }
 
+    public sealed class WheelFilterRuntime
+    {
+        public bool Enabled;
+        public int WindowMs;
+        public int ThresholdDelta;
+    }
+
     public sealed class Settings
     {
         public ConfigFile File;
@@ -292,6 +313,7 @@ namespace KeyBank.Core
         public string DefaultProfile;
         public ScrollRuntime Scroll;
         public bool AltMouse;
+        public WheelFilterRuntime WheelFilter;
         public HashSet<string> ExcludeApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, HashSet<int>> AppChords = new Dictionary<string, HashSet<int>>();
         public List<DeviceRule> Devices;
@@ -320,6 +342,7 @@ namespace KeyBank.Core
             s.ActiveProfile = f.ActiveProfile ?? "auto";
             s.DefaultProfile = f.DefaultProfile ?? "";
             s.AltMouse = f.AltMouse;
+            s.WheelFilter = CompileWheelFilter(f.WheelFilter ?? new WheelFilterConfig());
             s.Devices = f.Devices ?? new List<DeviceRule>();
             s.Scroll = CompileScroll(f.EffectiveScroll());
 
@@ -377,6 +400,19 @@ namespace KeyBank.Core
         {
             if (value <= 0 || value > 100)
                 throw new ConfigException(path + " 必須大於 0 且不超過 100。");
+        }
+
+        static WheelFilterRuntime CompileWheelFilter(WheelFilterConfig c)
+        {
+            if (c.WindowMs < 10 || c.WindowMs > 500)
+                throw new ConfigException("wheelFilter.windowMs 必須介於 10 到 500。");
+            if (c.ThresholdDelta < 1 || c.ThresholdDelta > 1200)
+                throw new ConfigException("wheelFilter.thresholdDelta 必須介於 1 到 1200。");
+            WheelFilterRuntime r = new WheelFilterRuntime();
+            r.Enabled = c.Enabled;
+            r.WindowMs = c.WindowMs;
+            r.ThresholdDelta = c.ThresholdDelta;
+            return r;
         }
 
         static ScrollRuntime CompileScroll(ScrollConfig c)
@@ -495,6 +531,7 @@ namespace KeyBank.Core
     ""apps"": {}
   },
   ""altMouse"": false,
+  ""wheelFilter"": { ""enabled"": false, ""windowMs"": 80, ""thresholdDelta"": 120 },
   ""excludeApps"": [],
   ""appAltChords"": {
     ""chrome.exe"": [""W"", ""T"", ""N"", ""R"", ""L"", ""D"", ""1"", ""2"", ""3"", ""4"", ""5"", ""6"", ""7"", ""8"", ""9"", ""0"", ""Equals"", ""Minus""]

@@ -27,6 +27,8 @@ namespace KeyBank.Core
         public MouseButton Button;
         public bool Down;
         public int Delta;
+        // Set by the hook for input some other program injected. KeyBank's own events never reach the pipeline.
+        public bool Injected;
 
         public static MouseEvent Click(MouseButton button, bool down)
         {
@@ -154,6 +156,7 @@ namespace KeyBank.Core
 
         readonly Settings settings;
         readonly Func<string> foreground;
+        readonly WheelReversalFilter wheelFilter;
         ProfileRuntime profile;
         readonly HashSet<int> mods = new HashSet<int>();
         readonly HashSet<int> chordHeld = new HashSet<int>();
@@ -180,6 +183,7 @@ namespace KeyBank.Core
         {
             this.settings = settings;
             foreground = foregroundApp;
+            wheelFilter = new WheelReversalFilter(settings.WheelFilter.WindowMs, settings.WheelFilter.ThresholdDelta);
             profile = settings.Profile(profileName);
         }
 
@@ -242,8 +246,13 @@ namespace KeyBank.Core
             return Result.Of(merged);
         }
 
-        public Result ProcessMouse(MouseEvent e)
+        // now is the same millisecond clock the keyboard path uses. Only the wheel filter reads it.
+        public Result ProcessMouse(MouseEvent e, long now)
         {
+            if (e.Kind == MouseKind.Wheel && !e.Injected && settings.WheelFilter.Enabled
+                && wheelFilter.ShouldDrop(e.Delta, now))
+                return Result.Swallow();
+
             if (e.Kind == MouseKind.Button && !e.Down)
             {
                 if (mouseHeld.Remove(e.Button))
