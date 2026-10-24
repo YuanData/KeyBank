@@ -415,10 +415,17 @@ namespace KeyBank.Win
                     }
                 }
                 p.Process(new KeyEvent(Vk.LAlt, true), t += 10);
-                Result m = p.ProcessMouse(MouseEvent.Click(MouseButton.Left, true));
+                Result m = p.ProcessMouse(MouseEvent.Click(MouseButton.Left, true), t += 10);
                 built.AddRange(m.Emit);
-                built.AddRange(p.ProcessMouse(MouseEvent.Click(MouseButton.Left, false)).Emit);
-                built.AddRange(p.ProcessMouse(MouseEvent.Wheel(-120)).Emit);
+                built.AddRange(p.ProcessMouse(MouseEvent.Click(MouseButton.Left, false), t += 10).Emit);
+                built.AddRange(p.ProcessMouse(MouseEvent.Wheel(-120), t += 10).Emit);
+                Settings ws = WheelFilterWarmSettings();
+                string wname = ws.ResolveProfile(null);
+                ws.Profile(wname);
+                Pipeline filtered = new Pipeline(ws, wname, foreground.CurrentExeName);
+                filtered.ProcessMouse(MouseEvent.Wheel(120), t += 10);
+                built.AddRange(filtered.ProcessMouse(MouseEvent.Wheel(-30), t += 10).Emit);
+                built.AddRange(filtered.ProcessMouse(MouseEvent.Wheel(120), t += 10).Emit);
                 built.AddRange(p.Tick(t + 1000));
                 built.AddRange(p.SetProfile(name));
                 built.AddRange(p.ReleaseAll());
@@ -448,9 +455,16 @@ namespace KeyBank.Win
             Interlocked.Exchange(ref prewarmMs, sw.ElapsedMilliseconds);
         }
 
+        // Throwaway settings with the wheel filter on, independent of the user's config, so the first real drop is already JIT-compiled.
+        Settings WheelFilterWarmSettings()
+        {
+            return Settings.Compile(ConfigFile.Parse(
+                "{\"defaultProfile\":\"w\",\"wheelFilter\":{\"enabled\":true},\"profiles\":{\"w\":{\"description\":\"w\"}}}"));
+        }
+
         void ApplyMouseHook()
         {
-            bool want = cur.AltMouse;
+            bool want = cur.AltMouse || cur.WheelFilter.Enabled;
             if (want && !mouse.Installed)
             {
                 if (!mouse.Install())
@@ -579,7 +593,7 @@ namespace KeyBank.Win
                 return false;
 
             long now = clock.ElapsedMilliseconds;
-            Result r = pipeline.ProcessMouse(e);
+            Result r = pipeline.ProcessMouse(e, now);
             if (!r.Handled)
                 return false;
 
@@ -601,6 +615,11 @@ namespace KeyBank.Win
         static string MouseText(MouseEvent e)
         {
             return e.Kind == MouseKind.Wheel ? Out.Wheel(e.Delta).ToString() : Out.Mouse(e.Button, e.Down).ToString();
+        }
+
+        static bool IsDroppedWheel(TraceEntry t)
+        {
+            return t.Mouse.Kind == MouseKind.Wheel && t.Result.Handled && t.Result.Emit.Count == 0;
         }
 
         void OnTick()
@@ -638,6 +657,7 @@ namespace KeyBank.Win
                 else if (t.IsMouse)
                     sb.Append(MouseText(t.Mouse))
                       .Append(" => ").Append(t.Result.ToString())
+                      .Append(IsDroppedWheel(t) ? " wheelfilter" : "")
                       .Append(" dev=").Append(t.Vendor ?? "none").AppendLine();
                 else
                     sb.Append(t.Down ? "+" : "-").Append(KeyNames.NameOf(t.Vk))
@@ -720,6 +740,11 @@ namespace KeyBank.Win
             if (error != null)
                 throw new InvalidOperationException(error.Message, error);
             return result;
+        }
+
+        internal bool MouseForTest(MouseEvent e)
+        {
+            return RunOnHookThread<bool>(delegate { return OnMouse(e); }, 5000);
         }
 
         internal bool KeyForTest(int vk, bool down)

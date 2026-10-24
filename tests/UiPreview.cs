@@ -127,6 +127,24 @@ static class UiPreview
             Check(host.Settings.AltMouse, "click Alt 加滑鼠變 Ctrl again -> true");
             Application.DoEvents();
 
+            Check(tray.WheelFilterItem.Text == "滾輪反向抑制" && !tray.WheelFilterItem.Checked && !host.Settings.WheelFilter.Enabled, "menu: 滾輪反向抑制 starts unchecked");
+            int altIdx = tray.AltMouseItem.Owner.Items.IndexOf(tray.AltMouseItem);
+            Check(tray.AltMouseItem.Owner.Items.IndexOf(tray.WheelFilterItem) == altIdx + 1, "menu: 滾輪反向抑制 right after Alt 加滑鼠變 Ctrl");
+            tray.WheelFilterItem.PerformClick();
+            Check(host.Settings.WheelFilter.Enabled, "click 滾輪反向抑制 -> WheelFilter.Enabled true");
+            Application.DoEvents();
+            Check(tray.WheelFilterItem.Checked, "menu rebuilt: 滾輪反向抑制 checked");
+            tray.WheelFilterItem.PerformClick();
+            Check(!host.Settings.WheelFilter.Enabled, "click 滾輪反向抑制 again -> false");
+            Application.DoEvents();
+            Check(!tray.WheelFilterItem.Checked, "menu rebuilt: 滾輪反向抑制 unchecked again");
+            host.RejectMutationsWith = "wheelFilter 測試拒絕。";
+            tray.WheelFilterItem.PerformClick();
+            Check(!host.Settings.WheelFilter.Enabled && tray.LastBalloon != null && tray.LastBalloon.Contains("wheelFilter"), "rejected Mutate leaves 滾輪反向抑制 off and raises a balloon");
+            host.RejectMutationsWith = null;
+            tray.LastBalloon = null;
+            Application.DoEvents();
+
             Check(tray.TuneForm == null, "tune form not created before click");
             tray.TuneItem.PerformClick();
             ScrollTuneForm first = tray.TuneForm;
@@ -230,6 +248,16 @@ static class UiPreview
         RuleRow app = Find(rows2, RuleModel.CatScroll, "PgUp / PgDn（chrome）");
         Check(app != null && app.Becomes == "單次 6 格；整頁 12 格", "per-app scroll row");
         Check(Find(rows2, RuleModel.CatAltMouse, "Alt + 滑鼠按鍵或滾輪").Becomes == "已關閉", "Alt mouse row off");
+
+        RuleRow wheelOff = Find(rows2, RuleModel.CatWheel, "滾輪（同方向捲動中夾雜的反向小幅事件）");
+        Check(wheelOff != null && wheelOff.Becomes == "已關閉" && wheelOff.Note == "真正的反向（超過門檻）仍會放行", "wheel row off");
+        f.WheelFilter.Enabled = true;
+        f.WheelFilter.WindowMs = 100;
+        f.WheelFilter.ThresholdDelta = 240;
+        Settings sw = Settings.Compile(f);
+        RuleRow wheelOn = Find(RuleModel.BuildRows(sw, sw.Profile("full")), RuleModel.CatWheel, "滾輪（同方向捲動中夾雜的反向小幅事件）");
+        Check(wheelOn != null && wheelOn.Becomes == "丟棄；時間窗 100 毫秒、位移門檻 240" && wheelOn.Note == "真正的反向（超過門檻）仍會放行", "wheel row on: " + (wheelOn == null ? "missing" : wheelOn.Becomes));
+        f.WheelFilter.Enabled = false;
 
         f.Scroll.Enabled = false;
         Settings s3 = Settings.Compile(f);
@@ -406,11 +434,17 @@ static class UiPreview
     {
         FakeHost host = new FakeHost();
         SetScroll(host, 4, 8, true);
+        host.Mutate(delegate(ConfigFile c)
+        {
+            c.WheelFilter.Enabled = true;
+            c.WheelFilter.WindowMs = 100;
+            c.WheelFilter.ThresholdDelta = 240;
+        });
         SettingsForm f = new SettingsForm(host);
         if (scale != 1.0f)
         {
             f.Font = new Font("Microsoft JhengHei UI", 9f * scale);
-            f.ClientSize = new Size((int)(1040 * scale), (int)(600 * scale));
+            f.ClientSize = new Size((int)(1240 * scale), (int)(600 * scale));
         }
         f.StartPosition = FormStartPosition.Manual;
         f.Location = new Point(40, 40);
@@ -421,7 +455,25 @@ static class UiPreview
         Application.DoEvents();
         string name = "settings-" + profile + (scale == 1.0f ? "" : "-" + (int)(scale * 100)) + ".png";
         Snap(f, outDir, name);
+        ListView list = FindList(f);
+        list.EnsureVisible(list.Items.Count - 1);
+        Application.DoEvents();
+        Snap(f, outDir, name.Replace(".png", "-bottom.png"));
         f.Close();
+    }
+
+    static ListView FindList(Control c)
+    {
+        foreach (Control child in c.Controls)
+        {
+            ListView lv = child as ListView;
+            if (lv != null)
+                return lv;
+            lv = FindList(child);
+            if (lv != null)
+                return lv;
+        }
+        return null;
     }
 
     static void RenderTune(string outDir, string name, float scale, double page, double step, bool withApps)

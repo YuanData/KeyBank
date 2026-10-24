@@ -41,7 +41,7 @@ namespace KeyBank.Ui
             StartPosition = FormStartPosition.CenterScreen;
             ShowInTaskbar = true;
             MinimumSize = new Size(560, 380);
-            ClientSize = new Size(1040, 600);
+            ClientSize = new Size(1240, 600);
 
             BuildLayout();
 
@@ -158,9 +158,12 @@ namespace KeyBank.Ui
                 return;
             rules.Columns[0].Width = w * 12 / 100;
             rules.Columns[1].Width = w * 17 / 100;
+            int minPress = rules.Columns[1].Width;
+            rules.Columns[1].AutoResize(ColumnHeaderAutoResizeStyle.ColumnContent);
             rules.Columns[2].AutoResize(ColumnHeaderAutoResizeStyle.ColumnContent);
             rules.Columns[3].AutoResize(ColumnHeaderAutoResizeStyle.ColumnContent);
             int pad = TextRenderer.MeasureText("MM", Font).Width;
+            rules.Columns[1].Width = Math.Max(minPress, rules.Columns[1].Width + pad);
             rules.Columns[2].Width += pad;
             rules.Columns[3].Width += pad;
             int rest = w - rules.Columns[0].Width - rules.Columns[1].Width - rules.Columns[2].Width;

@@ -132,10 +132,11 @@ static class WinTests
         Expect("raw wheel marker", (IntPtr)Native.Marker, wheel.u.mi.dwExtraInfo);
     }
 
-    static byte[] MouseStruct(int mouseData, long extra)
+    static byte[] MouseStruct(int mouseData, int flags, long extra)
     {
         byte[] s = new byte[IntPtr.Size == 8 ? 32 : 24];
         BitConverter.GetBytes(mouseData).CopyTo(s, 8);
+        BitConverter.GetBytes(flags).CopyTo(s, 12);
         byte[] e = IntPtr.Size == 8 ? BitConverter.GetBytes(extra) : BitConverter.GetBytes((int)extra);
         e.CopyTo(s, IntPtr.Size == 8 ? 24 : 20);
         return s;
@@ -143,10 +144,16 @@ static class WinTests
 
     static string Parsed(int msg, int mouseData, long extra)
     {
+        return Parsed(msg, mouseData, 0, extra);
+    }
+
+    static string Parsed(int msg, int mouseData, int flags, long extra)
+    {
         MouseEvent e;
-        if (!MouseHook.ParseStruct(msg, MouseStruct(mouseData, extra), out e))
+        if (!MouseHook.ParseStruct(msg, MouseStruct(mouseData, flags, extra), out e))
             return "ignored";
-        return e.Kind == MouseKind.Wheel ? "wheel " + e.Delta : e.Button + (e.Down ? " down" : " up");
+        string text = e.Kind == MouseKind.Wheel ? "wheel " + e.Delta : e.Button + (e.Down ? " down" : " up");
+        return e.Injected ? text + " injected" : text;
     }
 
     static void MouseParseTests()
@@ -172,6 +179,15 @@ static class WinTests
         Expect("own marker left ignored", "ignored", Parsed(Native.WM_LBUTTONDOWN, 0, Native.Marker));
         Expect("own marker wheel ignored", "ignored", Parsed(Native.WM_MOUSEWHEEL, 120 << 16, Native.Marker));
         Expect("other extra info passes", "Left down", Parsed(Native.WM_LBUTTONDOWN, 0, 0x1234));
+        Expect("wheel flags 0 not injected", "wheel 120", Parsed(Native.WM_MOUSEWHEEL, 120 << 16, 0, 0));
+        Expect("wheel flags 1 injected", "wheel 120 injected", Parsed(Native.WM_MOUSEWHEEL, 120 << 16, 1, 0));
+        Expect("wheel other flag bits not injected", "wheel 120", Parsed(Native.WM_MOUSEWHEEL, 120 << 16, 0x2, 0));
+        Expect("wheel injected plus other bits", "wheel 120 injected", Parsed(Native.WM_MOUSEWHEEL, 120 << 16, 0x3, 0));
+        Expect("button flags 0 not injected", "Left down", Parsed(Native.WM_LBUTTONDOWN, 0, 0, 0));
+        Expect("button flags 1 injected", "Left down injected", Parsed(Native.WM_LBUTTONDOWN, 0, 1, 0));
+        Expect("x button flags 1 injected", "X1 up injected", Parsed(Native.WM_XBUTTONUP, 1 << 16, 1, 0));
+        Expect("marker wins over injected flag", "ignored", Parsed(Native.WM_MOUSEWHEEL, 120 << 16, 1, Native.Marker));
+        Expect("move with injected flag ignored", "ignored", Parsed(0x0200, 0, 1, 0));
     }
 
     static void ForegroundTests()
@@ -388,10 +404,15 @@ static class WinTests
 
     static string ConfigJson(bool altMouse, string defaultProfile, bool remapF12)
     {
+        return ConfigJson(altMouse, false, defaultProfile, remapF12);
+    }
+
+    static string ConfigJson(bool altMouse, bool wheelFilter, string defaultProfile, bool remapF12)
+    {
         string remap = remapF12 ? "{\"from\":\"F12\",\"to\":\"F11\"}" : "";
         return "{\"enabled\":true,\"activeProfile\":\"auto\",\"defaultProfile\":\"" + defaultProfile + "\","
             + "\"scroll\":{\"enabled\":false,\"stepTicks\":4,\"pageTicks\":8,\"burstTaps\":3,\"burstIntervalMs\":400,\"holdRepeatsPerSec\":8,\"apps\":{}},"
-            + "\"altMouse\":" + (altMouse ? "true" : "false") + ",\"excludeApps\":[],\"appAltChords\":{},\"devices\":[],"
+            + "\"altMouse\":" + (altMouse ? "true" : "false") + ",\"wheelFilter\":{\"enabled\":" + (wheelFilter ? "true" : "false") + "},\"excludeApps\":[],\"appAltChords\":{},\"devices\":[],"
             + "\"profiles\":{\"p\":{\"description\":\"neutral\",\"altChords\":[],\"remap\":[" + remap + "],\"tapHold\":[]},"
             + "\"q\":{\"description\":\"other\",\"altChords\":[],\"remap\":[],\"tapHold\":[]}}}";
     }
@@ -430,6 +451,72 @@ static class WinTests
         now = 10501;
         Expect("second stall detected", true, w.Check());
         Expect("fired twice", 2, fired);
+    }
+
+    static string WheelTrace(string dir, string path)
+    {
+        File.WriteAllText(path, ConfigJson(false, true, "p", false));
+        Engine traced = new Engine(path, true, Options());
+        traced.MouseForTest(MouseEvent.Wheel(120));
+        traced.MouseForTest(MouseEvent.Wheel(-30));
+        traced.Shutdown();
+        return File.ReadAllText(Path.Combine(Path.GetTempPath(), "KeyBank.trace.log"));
+    }
+
+    static void WheelFilterEngineTests(string path)
+    {
+        File.WriteAllText(path, ConfigJson(false, true, "p", false));
+        Engine e = new Engine(path, false, Options());
+        try
+        {
+            Expect("wheelFilter only: mouse hook installed at startup", true, e.MouseHookInstalled);
+            int before = sends;
+            MouseEvent up = MouseEvent.Wheel(120);
+            MouseEvent small = MouseEvent.Wheel(-30);
+            Expect("first wheel event passes", false, e.MouseForTest(up));
+            Expect("small reverse wheel event dropped", true, e.MouseForTest(small));
+            Expect("next primary wheel event passes", false, e.MouseForTest(up));
+            small.Injected = true;
+            Expect("injected reverse wheel event never dropped", false, e.MouseForTest(small));
+            Expect("button event passes", false, e.MouseForTest(MouseEvent.Click(MouseButton.Left, true)));
+            Expect("wheel filter path injected nothing", before, sends);
+
+            e.Mutate(delegate(ConfigFile f) { f.WheelFilter.Enabled = false; });
+            Expect("wheelFilter off uninstalls mouse hook", true, WaitFor(delegate { return !e.MouseHookInstalled; }, 3000));
+            e.Mutate(delegate(ConfigFile f) { f.WheelFilter.Enabled = true; });
+            Expect("wheelFilter on installs mouse hook", true, WaitFor(delegate { return e.MouseHookInstalled; }, 3000));
+            e.Mutate(delegate(ConfigFile f) { f.AltMouse = true; f.WheelFilter.Enabled = false; });
+            Expect("altMouse alone keeps mouse hook", true, WaitFor(delegate { return e.Settings.AltMouse && !e.Settings.WheelFilter.Enabled; }, 3000));
+            Pump(300);
+            Expect("altMouse alone: hook installed", true, e.MouseHookInstalled);
+            Expect("wheelFilter off passes reverse wheel", false, e.MouseForTest(MouseEvent.Wheel(120)) || e.MouseForTest(MouseEvent.Wheel(-30)));
+            e.Mutate(delegate(ConfigFile f) { f.AltMouse = false; });
+            Expect("both off uninstalls mouse hook", true, WaitFor(delegate { return !e.MouseHookInstalled; }, 3000));
+            Expect("wheel filter flips injected nothing", before, sends);
+        }
+        finally
+        {
+            e.Shutdown();
+        }
+        ShutdownChecks("wheelFilter", e);
+
+        File.WriteAllText(path, ConfigJson(false, false, "p", false));
+        Engine none = new Engine(path, false, Options());
+        try
+        {
+            Expect("both off at startup: mouse hook not installed", false, none.MouseHookInstalled);
+            Expect("filter off passes wheel", false, none.MouseForTest(MouseEvent.Wheel(120)));
+            Expect("filter off passes reverse wheel", false, none.MouseForTest(MouseEvent.Wheel(-30)));
+        }
+        finally
+        {
+            none.Shutdown();
+        }
+        ShutdownChecks("no mouse hook", none);
+
+        string trace = WheelTrace(Path.GetDirectoryName(path), path);
+        Expect("trace marks dropped wheel", true, trace.Contains("wheelfilter"));
+        Expect("trace marks only the dropped wheel", 1, trace.Split(new string[] { "wheelfilter" }, StringSplitOptions.None).Length - 1);
     }
 
     static void ShutdownChecks(string name, Engine engine)
@@ -532,6 +619,8 @@ static class WinTests
             flip.Shutdown();
             ShutdownChecks("altMouse flip", flip);
             engine = null;
+
+            WheelFilterEngineTests(path);
 
             File.WriteAllText(path, ConfigJson(true, "p", false));
             engine = new Engine(path, false, Options());

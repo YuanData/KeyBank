@@ -33,6 +33,7 @@ namespace KeyBank.Ui
         public const string CatHold = "長按";
         public const string CatScroll = "分段捲動";
         public const string CatAltMouse = "Alt 加滑鼠";
+        public const string CatWheel = "滾輪";
         public const string CatExclude = "排除的程式";
 
         public static string TickText(double ticks)
@@ -202,6 +203,13 @@ namespace KeyBank.Ui
             rows.Add(s.AltMouse
                 ? Row(CatAltMouse, "Alt + 滑鼠按鍵或滾輪", "Ctrl + 同一個動作", "")
                 : Row(CatAltMouse, "Alt + 滑鼠按鍵或滾輪", "已關閉", ""));
+
+            WheelFilterRuntime wf = s.WheelFilter;
+            rows.Add(wf.Enabled
+                ? Row(CatWheel, "滾輪（同方向捲動中夾雜的反向小幅事件）",
+                    "丟棄；時間窗 " + wf.WindowMs.ToString(CultureInfo.InvariantCulture) + " 毫秒、位移門檻 " + wf.ThresholdDelta.ToString(CultureInfo.InvariantCulture),
+                    "真正的反向（超過門檻）仍會放行")
+                : Row(CatWheel, "滾輪（同方向捲動中夾雜的反向小幅事件）", "已關閉", "真正的反向（超過門檻）仍會放行"));
 
             if (s.ExcludeApps.Count == 0)
                 rows.Add(Row(CatExclude, "（無）", "", ""));

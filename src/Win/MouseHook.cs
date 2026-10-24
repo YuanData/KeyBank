@@ -10,8 +10,11 @@ namespace KeyBank.Win
     internal sealed class MouseHook : IDisposable
     {
         // MSLLHOOKSTRUCT: pt(8) mouseData(4) flags(4) time(4), then dwExtraInfo aligned to pointer size.
+        // flags bit 0 is LLMHF_INJECTED.
         static readonly int ExtraInfoOffset = IntPtr.Size == 8 ? 24 : 20;
         const int MouseDataOffset = 8;
+        const int FlagsOffset = 12;
+        const int InjectedFlag = 0x1;
 
         readonly Func<MouseEvent, bool> handler;
         readonly LowLevelKeyboardProc proc;
@@ -63,9 +66,9 @@ namespace KeyBank.Win
                 for (int i = 0; i < 64; i += 4)
                     Marshal.WriteInt32(buffer, i, 0);
                 MouseEvent e;
-                Parse(Native.WM_LBUTTONDOWN, Marshal.ReadInt32(buffer, MouseDataOffset), (long)Marshal.ReadIntPtr(buffer, ExtraInfoOffset), out e);
-                Parse(Native.WM_MOUSEWHEEL, 120 << 16, 0, out e);
-                Parse(Native.WM_XBUTTONUP, 1 << 16, 0, out e);
+                Parse(Native.WM_LBUTTONDOWN, Marshal.ReadInt32(buffer, MouseDataOffset), Marshal.ReadInt32(buffer, FlagsOffset), (long)Marshal.ReadIntPtr(buffer, ExtraInfoOffset), out e);
+                Parse(Native.WM_MOUSEWHEEL, 120 << 16, InjectedFlag, 0, out e);
+                Parse(Native.WM_XBUTTONUP, 1 << 16, 0, 0, out e);
             }
             finally
             {
@@ -79,11 +82,20 @@ namespace KeyBank.Win
         }
 
         // Returns false for anything KeyBank does not act on: moves, our own injected events, zero wheel deltas.
-        internal static bool Parse(int msg, int mouseData, long extraInfo, out MouseEvent e)
+        internal static bool Parse(int msg, int mouseData, int flags, long extraInfo, out MouseEvent e)
         {
             e = new MouseEvent();
             if (extraInfo == Native.Marker)
                 return false;
+            if (!ParseKind(msg, mouseData, out e))
+                return false;
+            e.Injected = (flags & InjectedFlag) != 0;
+            return true;
+        }
+
+        static bool ParseKind(int msg, int mouseData, out MouseEvent e)
+        {
+            e = new MouseEvent();
 
             switch (msg)
             {
@@ -114,7 +126,7 @@ namespace KeyBank.Win
         internal static bool ParseStruct(int msg, byte[] s, out MouseEvent e)
         {
             long extra = IntPtr.Size == 8 ? BitConverter.ToInt64(s, ExtraInfoOffset) : BitConverter.ToInt32(s, ExtraInfoOffset);
-            return Parse(msg, BitConverter.ToInt32(s, MouseDataOffset), extra, out e);
+            return Parse(msg, BitConverter.ToInt32(s, MouseDataOffset), BitConverter.ToInt32(s, FlagsOffset), extra, out e);
         }
 
         IntPtr Callback(int code, IntPtr wParam, IntPtr lParam)
@@ -127,7 +139,7 @@ namespace KeyBank.Win
                     try
                     {
                         MouseEvent e;
-                        if (Parse(msg, Marshal.ReadInt32(lParam, MouseDataOffset), (long)Marshal.ReadIntPtr(lParam, ExtraInfoOffset), out e)
+                        if (Parse(msg, Marshal.ReadInt32(lParam, MouseDataOffset), Marshal.ReadInt32(lParam, FlagsOffset), (long)Marshal.ReadIntPtr(lParam, ExtraInfoOffset), out e)
                             && handler(e))
                             return (IntPtr)1;
                     }

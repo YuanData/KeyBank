@@ -32,6 +32,7 @@ namespace KeyBank.Ui
         internal ToolStripMenuItem EnabledItem;
         internal ToolStripMenuItem ScrollItem;
         internal ToolStripMenuItem AltMouseItem;
+        internal ToolStripMenuItem WheelFilterItem;
         internal ToolStripMenuItem TuneItem;
         internal ToolStripMenuItem AutoProfileItem;
         internal ToolStripMenuItem AutoStartItem;
@@ -121,6 +122,11 @@ namespace KeyBank.Ui
             AltMouseItem.Checked = s.AltMouse;
             AltMouseItem.Click += delegate { ToggleAltMouse(); };
             menu.Items.Add(AltMouseItem);
+
+            WheelFilterItem = new ToolStripMenuItem("滾輪反向抑制");
+            WheelFilterItem.Checked = s.WheelFilter.Enabled;
+            WheelFilterItem.Click += delegate { ToggleWheelFilter(); };
+            menu.Items.Add(WheelFilterItem);
 
             TuneItem = new ToolStripMenuItem("捲動微調…");
             TuneItem.Click += delegate { ShowTune(); };
@@ -215,6 +221,16 @@ namespace KeyBank.Ui
         {
             bool target = !host.Settings.AltMouse;
             Apply(delegate(ConfigFile f) { f.AltMouse = target; });
+        }
+
+        internal void ToggleWheelFilter()
+        {
+            bool target = !host.Settings.WheelFilter.Enabled;
+            Apply(delegate(ConfigFile f)
+            {
+                f.WheelFilter = f.WheelFilter ?? new WheelFilterConfig();
+                f.WheelFilter.Enabled = target;
+            });
         }
 
         internal void LockProfile(string name)
