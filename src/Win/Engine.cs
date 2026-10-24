@@ -19,6 +19,9 @@ namespace KeyBank.Win
         public int StallLimitMs = 1500;
         public int WatchdogPeriodMs = 250;
         public int SlowCallbackMs = 250;
+        public string WheelLogPath = null;
+        public long WheelLogMaxBytes = 2 * 1024 * 1024;
+        public Action WheelLogWriteProbe = null;
     }
 
     // All input work (hooks, Raw Input, Pipeline, SendInput, the tick) lives on one background thread with
@@ -73,6 +76,12 @@ namespace KeyBank.Win
         long lastSlowLogMs = long.MinValue / 2;
         long lastLoopErrorMs = long.MinValue / 2;
         long lastGuardLogMs = long.MinValue / 2;
+        WheelBurstRecorder recorder;
+        WheelLogWriter logWriter;
+        readonly Queue<string> logQueue = new Queue<string>();
+        bool logHeaderWritten;
+        bool markHeld;
+        long lastRecordedWheelMs;
 
         [ThreadStatic] static bool inMouseCallback;
         int injectionInMouseCallback;
@@ -113,6 +122,7 @@ namespace KeyBank.Win
             if (trace)
                 File.WriteAllText(tracePath, "KeyBank trace " + DateTime.Now.ToString("s") + Environment.NewLine);
 
+            logWriter = new WheelLogWriter(opt.WheelLogPath ?? WheelLogWriter.DefaultPath(), opt.WheelLogMaxBytes, opt.WheelLogWriteProbe);
             keyboard = new KeyboardHook(OnKey);
             mouse = new MouseHook(OnMouse);
 
@@ -185,6 +195,11 @@ namespace KeyBank.Win
         internal bool MouseHookInstalled
         {
             get { return mouse.Installed; }
+        }
+
+        internal int WheelLogErrors
+        {
+            get { return logWriter.Errors; }
         }
 
         internal bool KeyboardHookInstalled
@@ -338,6 +353,7 @@ namespace KeyBank.Win
                 cur = store.Settings;
                 pipeline = NewPipeline();
                 activeProfile = pipeline.ProfileName;
+                recorder = new WheelBurstRecorder(cur.Diagnostics.BurstGapMs);
 
                 Prewarm();
                 Beat();
@@ -455,6 +471,15 @@ namespace KeyBank.Win
             catch (Exception)
             {
             }
+            try
+            {
+                if (recorder != null)
+                    QueueLine(recorder.Flush());
+                DrainLog();
+            }
+            catch (Exception)
+            {
+            }
             if (trace)
                 FlushTrace();
         }
@@ -540,7 +565,7 @@ namespace KeyBank.Win
 
         void ApplyMouseHook()
         {
-            bool want = cur.AltMouse || cur.WheelFilter.Enabled;
+            bool want = cur.AltMouse || cur.WheelFilter.Enabled || cur.Diagnostics.WheelLog;
             if (want && !mouse.Installed)
             {
                 if (!mouse.Install())
@@ -565,9 +590,12 @@ namespace KeyBank.Win
                 foreground.Reset();
                 DiscardMouseOut();
                 Send(pipeline.ReleaseAll());
+                QueueLine(recorder.Flush());
                 cur = next;
                 pipeline = NewPipeline();
                 activeProfile = pipeline.ProfileName;
+                recorder = new WheelBurstRecorder(cur.Diagnostics.BurstGapMs);
+                markHeld = false;
                 ApplyMouseHook();
             }
             RaiseChanged();
@@ -635,6 +663,7 @@ namespace KeyBank.Win
         bool HandleKey(int vk, bool down)
         {
             Settings s = cur;
+            NoteMarkKey(s, vk, down);
             if (!s.Enabled)
                 return false;
             if (s.ExcludeApps.Count > 0 && foreground.IsExcluded(s.ExcludeApps))
@@ -665,6 +694,80 @@ namespace KeyBank.Win
         // Runs inside the hook callback for button and wheel events only. Mouse moves never get here. Injection is queued, not sent.
         bool HandleMouse(MouseEvent e)
         {
+            bool dropped;
+            bool swallow = HandleMouseCore(e, out dropped);
+            if (e.Kind == MouseKind.Wheel && !e.Injected && cur.Diagnostics.WheelLog)
+                RecordWheel(e, dropped);
+            return swallow;
+        }
+
+        // Only queue pushes here: the wall-clock text is built once per burst start and the file is written by the tick.
+        void RecordWheel(MouseEvent e, bool dropped)
+        {
+            long now = clock.ElapsedMilliseconds;
+            string wall = null;
+            if (!recorder.Active || now - lastRecordedWheelMs > cur.Diagnostics.BurstGapMs)
+                wall = WallClock();
+            lastRecordedWheelMs = now;
+            QueueLine(recorder.Add(now, e.HardwareMs, e.Delta, dropped, AppLabel(), wall));
+        }
+
+        void NoteMarkKey(Settings s, int vk, bool down)
+        {
+            DiagnosticsRuntime d = s.Diagnostics;
+            if (d.MarkVk == 0 || vk != d.MarkVk || !d.WheelLog)
+                return;
+            if (!down)
+            {
+                markHeld = false;
+                return;
+            }
+            if (markHeld)
+                return;
+            markHeld = true;
+            QueueLine(WheelBurstRecorder.MarkLine(WallClock(), AppLabel()));
+        }
+
+        static string WallClock()
+        {
+            return DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+        }
+
+        string AppLabel()
+        {
+            string exe = foreground.CurrentExeName();
+            if (exe != null && exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                exe = exe.Substring(0, exe.Length - 4);
+            return exe;
+        }
+
+        void QueueLine(string line)
+        {
+            if (line != null)
+                logQueue.Enqueue(line);
+        }
+
+        // Hook thread, outside any hook callback.
+        void DrainLog()
+        {
+            if (logQueue.Count == 0)
+                return;
+            List<string> lines = new List<string>();
+            if (!logHeaderWritten)
+            {
+                logHeaderWritten = true;
+                DiagnosticsRuntime d = cur.Diagnostics;
+                lines.Add("# KeyBank wheel log started " + WallClock() + " burstGap=" + d.BurstGapMs + "ms markKey="
+                    + (d.MarkVk == 0 ? "off" : KeyNames.NameOf(d.MarkVk)));
+            }
+            while (logQueue.Count > 0)
+                lines.Add(logQueue.Dequeue());
+            logWriter.Append(lines);
+        }
+
+        bool HandleMouseCore(MouseEvent e, out bool dropped)
+        {
+            dropped = false;
             Settings s = cur;
             if (!s.Enabled)
                 return false;
@@ -673,6 +776,7 @@ namespace KeyBank.Win
 
             long now = clock.ElapsedMilliseconds;
             Result r = pipeline.ProcessMouse(e, now);
+            dropped = r.Handled && r.Emit.Count == 0;
 
             // Wheel events are traced even when passed, so the real bounce timing can be read back.
             if (trace && (r.Handled || e.Kind == MouseKind.Wheel))
@@ -716,6 +820,9 @@ namespace KeyBank.Win
             DrainWork();
             DrainMouseOut();
             ApplyPendingSettings();
+
+            QueueLine(recorder.Poll(clock.ElapsedMilliseconds));
+            DrainLog();
 
             List<Out> fired = pipeline.Tick(clock.ElapsedMilliseconds);
             Send(fired);

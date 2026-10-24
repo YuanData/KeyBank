@@ -8,7 +8,7 @@ using KeyBank;
 using KeyBank.Core;
 using KeyBank.Win;
 
-static class WinTests
+static partial class WinTests
 {
     static int failed;
     static int passed;
@@ -56,6 +56,8 @@ static class WinTests
         WatchdogTests();
         EngineTests();
         MouseQueueTests();
+        WheelLogTests();
+        try { Directory.Delete(SharedLogDir, true); } catch (IOException) { }
         Console.WriteLine("passed " + passed + ", failed " + failed);
         return failed == 0 ? 0 : 1;
     }
@@ -135,9 +137,15 @@ static class WinTests
 
     static byte[] MouseStruct(int mouseData, int flags, long extra)
     {
+        return MouseStruct(mouseData, flags, 0u, extra);
+    }
+
+    static byte[] MouseStruct(int mouseData, int flags, uint time, long extra)
+    {
         byte[] s = new byte[IntPtr.Size == 8 ? 32 : 24];
         BitConverter.GetBytes(mouseData).CopyTo(s, 8);
         BitConverter.GetBytes(flags).CopyTo(s, 12);
+        BitConverter.GetBytes(time).CopyTo(s, 16);
         byte[] e = IntPtr.Size == 8 ? BitConverter.GetBytes(extra) : BitConverter.GetBytes((int)extra);
         e.CopyTo(s, IntPtr.Size == 8 ? 24 : 20);
         return s;
@@ -189,6 +197,17 @@ static class WinTests
         Expect("x button flags 1 injected", "X1 up injected", Parsed(Native.WM_XBUTTONUP, 1 << 16, 1, 0));
         Expect("marker wins over injected flag", "ignored", Parsed(Native.WM_MOUSEWHEEL, 120 << 16, 1, Native.Marker));
         Expect("move with injected flag ignored", "ignored", Parsed(0x0200, 0, 1, 0));
+
+        MouseEvent t;
+        Expect("time parsed", true, MouseHook.ParseStruct(Native.WM_MOUSEWHEEL, MouseStruct(120 << 16, 0, 123456u, 0), out t));
+        Expect("hardware ms from offset 16", 123456L, t.HardwareMs);
+        MouseHook.ParseStruct(Native.WM_MOUSEWHEEL, MouseStruct(120 << 16, 0, 3000000000u, 0), out t);
+        Expect("hardware ms above int.MaxValue stays positive", 3000000000L, t.HardwareMs);
+        MouseHook.ParseStruct(Native.WM_MOUSEWHEEL, MouseStruct(120 << 16, 0, uint.MaxValue, 0), out t);
+        Expect("hardware ms uint max", 4294967295L, t.HardwareMs);
+        MouseHook.ParseStruct(Native.WM_LBUTTONDOWN, MouseStruct(0, 1, 777u, 0), out t);
+        Expect("hardware ms on a button event", 777L, t.HardwareMs);
+        Expect("time does not disturb delta and flags", "wheel -120 injected", Parsed(Native.WM_MOUSEWHEEL, unchecked((int)((uint)(ushort)(short)-120 << 16)), 1, 0));
     }
 
     static void ForegroundTests()
@@ -410,19 +429,27 @@ static class WinTests
 
     static string ConfigJson(bool altMouse, bool wheelFilter, string defaultProfile, bool remapF12)
     {
+        return ConfigJson(altMouse, wheelFilter, defaultProfile, remapF12, "{\"wheelLog\":false}");
+    }
+
+    static string ConfigJson(bool altMouse, bool wheelFilter, string defaultProfile, bool remapF12, string diagnostics)
+    {
         string remap = remapF12 ? "{\"from\":\"F12\",\"to\":\"F11\"}" : "";
         return "{\"enabled\":true,\"activeProfile\":\"auto\",\"defaultProfile\":\"" + defaultProfile + "\","
             + "\"scroll\":{\"enabled\":false,\"stepTicks\":4,\"pageTicks\":8,\"burstTaps\":3,\"burstIntervalMs\":400,\"holdRepeatsPerSec\":8,\"apps\":{}},"
-            + "\"altMouse\":" + (altMouse ? "true" : "false") + ",\"wheelFilter\":{\"enabled\":" + (wheelFilter ? "true" : "false") + "},\"excludeApps\":[],\"appAltChords\":{},\"devices\":[],"
+            + "\"altMouse\":" + (altMouse ? "true" : "false") + ",\"wheelFilter\":{\"enabled\":" + (wheelFilter ? "true" : "false") + "},\"diagnostics\":" + diagnostics + ",\"excludeApps\":[],\"appAltChords\":{},\"devices\":[],"
             + "\"profiles\":{\"p\":{\"description\":\"neutral\",\"altChords\":[],\"remap\":[" + remap + "],\"tapHold\":[]},"
             + "\"q\":{\"description\":\"other\",\"altChords\":[],\"remap\":[],\"tapHold\":[]}}}";
     }
 
     static int sends;
 
+    static readonly string SharedLogDir = Path.Combine(Path.GetTempPath(), "KeyBankWinTestsLog-" + Guid.NewGuid().ToString("N"));
+
     static EngineOptions Options()
     {
         EngineOptions o = new EngineOptions();
+        o.WheelLogPath = Path.Combine(SharedLogDir, "wheel.log");
         o.Send = delegate(List<Out> outs) { Interlocked.Add(ref sends, outs.Count); return outs.Count; };
         return o;
     }
@@ -700,6 +727,7 @@ static class WinTests
     static EngineOptions Recording(SendLog log)
     {
         EngineOptions o = new EngineOptions();
+        o.WheelLogPath = Path.Combine(SharedLogDir, "wheel.log");
         o.Send = delegate(List<Out> outs)
         {
             string text = string.Join(" ", outs.ConvertAll<string>(delegate(Out x) { return x.ToString(); }).ToArray());

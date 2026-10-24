@@ -10,7 +10,7 @@ $lib = @("$root\src\Core\*.cs", "$root\src\IEngineHost.cs", "$root\src\Win\*.cs"
 if ($LASTEXITCODE -ne 0) { throw "library compile failed ($LASTEXITCODE)" }
 
 $exe = "$bin\WinTests.exe"
-& $csc /nologo /target:exe /warnaserror+ "/out:$exe" @refs @lib "$root\tests\WinTests.cs"
+& $csc /nologo /target:exe /warnaserror+ "/out:$exe" @refs @lib "$root\tests\WinTests.cs" "$root\tests\WinLogTests.cs"
 if ($LASTEXITCODE -ne 0) { throw "test compile failed ($LASTEXITCODE)" }
 
 # The tests install real low-level hooks for short stretches and never inject input. If this process ever
