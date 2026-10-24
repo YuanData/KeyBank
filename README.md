@@ -39,6 +39,7 @@
 - 其他程式注入的滾輪事件不處理，只處理實體滑鼠。
 - 開啟：右鍵選單勾「滾輪反向抑制」，或設定檔 `wheelFilter.enabled` 改成 `true`。參數 `wheelFilter.windowMs`（10 到 500）與 `wheelFilter.thresholdDelta`（1 到 1200）只能在設定檔調整。
 - 開啟時會安裝滑鼠攔截，狀態在設定視窗的「滾輪」列顯示。
+- 如果停止捲動時仍偶爾反彈：反彈可能晚於時間窗才出現，或位移量大於門檻，所以沒被丟掉。用 `tests\WheelCapture.ps1` 記錄實際的間隔與位移量，再依資料調整 `windowMs` 與 `thresholdDelta`。追蹤格式為 `wheel(-120) => pass gap=35ms`，被丟棄的事件結尾會有 `wheelfilter`。
 
 **分段捲動**
 - 按 PgUp、PgDn 一下，捲「單次格數」。連點第 3 下起（每下間隔 400 毫秒內、同方向）捲「整頁格數」。停頓或換方向就重新計算。
@@ -78,5 +79,6 @@
 | `tests\run-win-tests.ps1` | Windows 層測試，不注入按鍵 |
 | `tests\run-ui-preview.ps1` | 設定視窗與微調視窗測試，預覽圖在 `bin\preview\` |
 | `tests\PhysicalCheck.ps1` | 實體鍵與滑鼠驗證，90 秒追蹤，要加 `-ExecutionPolicy Bypass` 執行 |
+| `tests\WheelCapture.ps1` | 滾輪反彈診斷：追蹤 60 秒，只印出滾輪事件的方向、位移量、與上一筆的間隔，以及有沒有被丟棄 |
 
 `src\Core` 是不依賴 Windows 的決策邏輯，`src\Win` 是鍵盤與滑鼠攔截與注入，`src\Ui` 是托盤與視窗。`tests\LiveSmoke.ps1` 與 `spikes\` 是除錯過程的留存，LiveSmoke 在目前環境不可靠，不要當成驗證依據。

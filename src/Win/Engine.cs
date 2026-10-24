@@ -673,10 +673,9 @@ namespace KeyBank.Win
 
             long now = clock.ElapsedMilliseconds;
             Result r = pipeline.ProcessMouse(e, now);
-            if (!r.Handled)
-                return false;
 
-            if (trace)
+            // Wheel events are traced even when passed, so the real bounce timing can be read back.
+            if (trace && (r.Handled || e.Kind == MouseKind.Wheel))
             {
                 TraceEntry t = new TraceEntry();
                 t.At = now;
@@ -686,6 +685,8 @@ namespace KeyBank.Win
                 t.Vendor = tracker.CurrentVendor;
                 traceQueue.Enqueue(t);
             }
+            if (!r.Handled)
+                return false;
 
             // Never SendInput here: the injected events pass through this hook and would stall the callback until
             // the system timeout. The FIFO keeps Down and Up in order. A later physical event that passes through
@@ -730,6 +731,8 @@ namespace KeyBank.Win
             EndCallback(t0, "tick");
         }
 
+        long lastWheelAt = -1;
+
         void FlushTrace()
         {
             if (traceQueue.IsEmpty)
@@ -742,10 +745,17 @@ namespace KeyBank.Win
                 if (t.Note != null)
                     sb.Append(t.Note).AppendLine();
                 else if (t.IsMouse)
+                {
                     sb.Append(MouseText(t.Mouse))
                       .Append(" => ").Append(t.Result.ToString())
-                      .Append(IsDroppedWheel(t) ? " wheelfilter" : "")
-                      .Append(" dev=").Append(t.Vendor ?? "none").AppendLine();
+                      .Append(IsDroppedWheel(t) ? " wheelfilter" : "");
+                    if (t.Mouse.Kind == MouseKind.Wheel)
+                    {
+                        sb.Append(" gap=").Append(lastWheelAt < 0 ? "-" : (t.At - lastWheelAt).ToString()).Append("ms");
+                        lastWheelAt = t.At;
+                    }
+                    sb.Append(" dev=").Append(t.Vendor ?? "none").AppendLine();
+                }
                 else
                     sb.Append(t.Down ? "+" : "-").Append(KeyNames.NameOf(t.Vk))
                       .Append(" => ").Append(t.Result.ToString())
