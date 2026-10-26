@@ -33,6 +33,7 @@ namespace KeyBank.Ui
         internal ToolStripMenuItem ScrollItem;
         internal ToolStripMenuItem AltMouseItem;
         internal ToolStripMenuItem WheelFilterItem;
+        internal ToolStripMenuItem WheelAccelItem;
         internal ToolStripMenuItem TuneItem;
         internal ToolStripMenuItem AutoProfileItem;
         internal ToolStripMenuItem AutoStartItem;
@@ -127,6 +128,11 @@ namespace KeyBank.Ui
             WheelFilterItem.Checked = s.WheelFilter.Enabled;
             WheelFilterItem.Click += delegate { ToggleWheelFilter(); };
             menu.Items.Add(WheelFilterItem);
+
+            WheelAccelItem = new ToolStripMenuItem("滾輪加速");
+            WheelAccelItem.Checked = s.WheelAccel.Enabled;
+            WheelAccelItem.Click += delegate { ToggleWheelAccel(); };
+            menu.Items.Add(WheelAccelItem);
 
             TuneItem = new ToolStripMenuItem("捲動微調…");
             TuneItem.Click += delegate { ShowTune(); };
@@ -230,6 +236,16 @@ namespace KeyBank.Ui
             {
                 f.WheelFilter = f.WheelFilter ?? new WheelFilterConfig();
                 f.WheelFilter.Enabled = target;
+            });
+        }
+
+        internal void ToggleWheelAccel()
+        {
+            bool target = !host.Settings.WheelAccel.Enabled;
+            Apply(delegate(ConfigFile f)
+            {
+                f.WheelAccel = f.WheelAccel ?? new WheelAccelConfig();
+                f.WheelAccel.Enabled = target;
             });
         }
 

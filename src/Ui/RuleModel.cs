@@ -211,6 +211,13 @@ namespace KeyBank.Ui
                     "真正的反向（超過門檻）仍會放行")
                 : Row(CatWheel, "滾輪（同方向捲動中夾雜的反向小幅事件）", "已關閉", "真正的反向（超過門檻）仍會放行"));
 
+            WheelAccelRuntime wa = s.WheelAccel;
+            rows.Add(wa.Enabled
+                ? Row(CatWheel, "滾輪（持續轉動時）",
+                    "加速；間隔不超過 " + wa.GapMs.ToString(CultureInfo.InvariantCulture) + " 毫秒算連續，上限 " + wa.MaxMultiplier.ToString("0.##", CultureInfo.InvariantCulture) + " 倍",
+                    "累積格數與持續時間各加一段倍率；停頓或反向即重算")
+                : Row(CatWheel, "滾輪（持續轉動時）", "已關閉", "累積格數與持續時間各加一段倍率；停頓或反向即重算"));
+
             if (s.ExcludeApps.Count == 0)
                 rows.Add(Row(CatExclude, "（無）", "", ""));
             else

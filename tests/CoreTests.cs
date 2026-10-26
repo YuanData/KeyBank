@@ -178,6 +178,91 @@ static class CoreTests
         ExpectThrows("diagnostics: burst gap too small", "diagnostics.burstGapMs", Cfg.Replace("\"burstGapMs\": 250", "\"burstGapMs\": 50"));
     }
 
+    static string AccelRun(WheelAccelerator a, int delta, int count, int stepMs, long start)
+    {
+        List<string> outs = new List<string>();
+        for (int i = 0; i < count; i++)
+            outs.Add(a.Scale(delta, start + (long)i * stepMs).ToString());
+        return string.Join(" ", outs.ToArray());
+    }
+
+    static WheelAccelerator Accel(string find, string replace)
+    {
+        string json = Cfg.Replace("\"wheelAccel\": { \"enabled\": false", "\"wheelAccel\": { \"enabled\": true");
+        if (find != null)
+            json = json.Replace(find, replace);
+        return new WheelAccelerator(Settings.Load(json).WheelAccel);
+    }
+
+    static void WheelAccelTests()
+    {
+        WheelAccelerator a = Accel(null, null);
+        Expect("accel: the first three ticks are untouched", "120 120 120", AccelRun(a, 120, 3, 40, 0));
+        a = Accel(null, null);
+        Expect("accel: ticks past the start ramp in linearly up to double", "120 120 120 144 168 192 216 240 240",
+            AccelRun(a, 120, 9, 40, 0));
+        a = Accel(null, null);
+        Expect("accel: scrolling down mirrors scrolling up", "-120 -120 -120 -144",
+            AccelRun(a, -120, 4, 40, 0));
+
+        a = Accel(null, null);
+        AccelRun(a, 120, 13, 40, 0);
+        Expect("accel: time boost starts after 500 ms of one burst", "245", a.Scale(120, 520).ToString());
+        a = Accel(null, null);
+        Expect("accel: time boost is fully in after 1500 ms", "480", AccelRun(a, 120, 40, 40, 0).Split(' ')[39]);
+
+        a = Accel("\"maxMultiplier\": 5", "\"maxMultiplier\": 3");
+        AccelRun(a, 120, 40, 40, 0);
+        Expect("accel: the multiplier is capped", "360", a.Scale(120, 1600).ToString());
+
+        a = Accel(null, null);
+        AccelRun(a, 120, 10, 40, 0);
+        Expect("accel: a pause longer than the gap starts a new burst", "120 120 120 144", AccelRun(a, 120, 4, 40, 360 + 101));
+        a = Accel(null, null);
+        AccelRun(a, 120, 10, 40, 0);
+        Expect("accel: a pause exactly at the gap keeps the burst", "240", a.Scale(120, 360 + 100).ToString());
+
+        a = Accel(null, null);
+        AccelRun(a, 120, 10, 40, 0);
+        Expect("accel: reversing direction starts a new burst", "-120", a.Scale(-120, 400).ToString());
+
+        a = Accel(null, null);
+        Expect("accel: high resolution wheels count fractional ticks", "30 30 30 30 30 30 30 30 30 30 30 30 32",
+            AccelRun(a, 30, 13, 10, 0));
+
+        a = Accel(null, null);
+        Expect("accel: a zero delta changes nothing", "0", a.Scale(0, 0).ToString());
+        a.Reset();
+        Expect("accel: reset forgets the burst", "120", a.Scale(120, 10).ToString());
+
+        string on = Cfg.Replace("\"wheelAccel\": { \"enabled\": false", "\"wheelAccel\": { \"enabled\": true");
+        Expect("accel: off by default in the shipped config", "False", Settings.Load(Cfg).WheelAccel.Enabled.ToString());
+        Expect("accel: config values are read", "True/100/5", Settings.Load(on).WheelAccel.Enabled + "/" + Settings.Load(on).WheelAccel.GapMs + "/" + Settings.Load(on).WheelAccel.MaxMultiplier);
+        Expect("accel: a file without the section keeps it off", "False",
+            Settings.Load(Cfg.Substring(0, Cfg.IndexOf("  \"wheelAccel\"")) + Cfg.Substring(Cfg.IndexOf("  \"diagnostics\""))).WheelAccel.Enabled.ToString());
+        Expect("accel: written back by ToJson", "True", Settings.Load(on).File.ToJson().Contains("\"wheelAccel\"").ToString());
+        ExpectThrows("accel: gap too small", "wheelAccel.gapMs", Cfg.Replace("\"gapMs\": 100", "\"gapMs\": 5"));
+        ExpectThrows("accel: cap below one", "wheelAccel.maxMultiplier", Cfg.Replace("\"maxMultiplier\": 5", "\"maxMultiplier\": 0.5"));
+
+        Pipeline p = NewWith(Cfg, "full");
+        Expect("pipeline accel: off passes every tick", "pass pass pass pass",
+            Wheel(p, 120, 0) + " " + Wheel(p, 120, 40) + " " + Wheel(p, 120, 80) + " " + Wheel(p, 120, 120));
+        p = NewWith(on, "full");
+        Expect("pipeline accel: early ticks pass, later ticks are replaced", "pass pass pass wheel(144) wheel(168)",
+            Wheel(p, 120, 0) + " " + Wheel(p, 120, 40) + " " + Wheel(p, 120, 80) + " " + Wheel(p, 120, 120) + " " + Wheel(p, 120, 160));
+        p = NewWith(on, "full");
+        p.Process(new KeyEvent(Vk.LCtrl, true), 0);
+        Expect("pipeline accel: Ctrl held (zoom) is never accelerated", "pass pass pass pass pass",
+            Wheel(p, 120, 10) + " " + Wheel(p, 120, 50) + " " + Wheel(p, 120, 90) + " " + Wheel(p, 120, 130) + " " + Wheel(p, 120, 170));
+        p = NewWith(on, "full");
+        MouseEvent injected = MouseEvent.Wheel(120);
+        injected.Injected = true;
+        string seen = "";
+        for (int i = 0; i < 6; i++)
+            seen += p.ProcessMouse(injected, i * 40) + " ";
+        Expect("pipeline accel: injected events are never accelerated", "pass pass pass pass pass pass ", seen);
+    }
+
     static void WheelFilterTests()
     {
         const int Up = 120, Down = -120;
@@ -541,6 +626,7 @@ static class CoreTests
         Expect("legacy: upgraded file is no longer an upgrade", "False", Settings.Load(upgraded).Upgraded.ToString());
 
         WheelFilterTests();
+        WheelAccelTests();
         WheelLogTests();
 
         ExpectThrows("bad key name", "不認得按鍵名稱 'Foo'", Cfg.Replace("\"to\": \"Home\"", "\"to\": \"Foo\""));

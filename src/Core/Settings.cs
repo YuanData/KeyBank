@@ -42,6 +42,19 @@ namespace KeyBank.Core
         public int ThresholdDelta = WheelReversalFilter.DefaultThresholdDelta;
     }
 
+    public class WheelAccelConfig
+    {
+        public bool Enabled = false;
+        public int GapMs = WheelAccelerator.DefaultGapMs;
+        public double StartTicks = WheelAccelerator.DefaultStartTicks;
+        public double RampTicks = WheelAccelerator.DefaultRampTicks;
+        public double TickBoost = WheelAccelerator.DefaultTickBoost;
+        public int TimeStartMs = WheelAccelerator.DefaultTimeStartMs;
+        public int TimeRampMs = WheelAccelerator.DefaultTimeRampMs;
+        public double TimeBoost = WheelAccelerator.DefaultTimeBoost;
+        public double MaxMultiplier = WheelAccelerator.DefaultMaxMultiplier;
+    }
+
     public class DiagnosticsConfig
     {
         public bool WheelLog = true;
@@ -87,6 +100,7 @@ namespace KeyBank.Core
         public ScrollConfig Scroll;
         public bool AltMouse = false;
         public WheelFilterConfig WheelFilter = new WheelFilterConfig();
+        public WheelAccelConfig WheelAccel = new WheelAccelConfig();
         public DiagnosticsConfig Diagnostics = new DiagnosticsConfig();
         public List<string> ExcludeApps = new List<string>();
         public Dictionary<string, List<string>> AppAltChords;
@@ -192,6 +206,18 @@ namespace KeyBank.Core
             wheel["windowMs"] = wf.WindowMs;
             wheel["thresholdDelta"] = wf.ThresholdDelta;
             root["wheelFilter"] = wheel;
+            WheelAccelConfig wa = WheelAccel ?? new WheelAccelConfig();
+            Dictionary<string, object> accel = new Dictionary<string, object>();
+            accel["enabled"] = wa.Enabled;
+            accel["gapMs"] = wa.GapMs;
+            accel["startTicks"] = wa.StartTicks;
+            accel["rampTicks"] = wa.RampTicks;
+            accel["tickBoost"] = wa.TickBoost;
+            accel["timeStartMs"] = wa.TimeStartMs;
+            accel["timeRampMs"] = wa.TimeRampMs;
+            accel["timeBoost"] = wa.TimeBoost;
+            accel["maxMultiplier"] = wa.MaxMultiplier;
+            root["wheelAccel"] = accel;
             DiagnosticsConfig dg = Diagnostics ?? new DiagnosticsConfig();
             Dictionary<string, object> diag = new Dictionary<string, object>();
             diag["wheelLog"] = dg.WheelLog;
@@ -319,6 +345,19 @@ namespace KeyBank.Core
         public int ThresholdDelta;
     }
 
+    public sealed class WheelAccelRuntime
+    {
+        public bool Enabled;
+        public int GapMs;
+        public double StartTicks;
+        public double RampTicks;
+        public double TickBoost;
+        public int TimeStartMs;
+        public int TimeRampMs;
+        public double TimeBoost;
+        public double MaxMultiplier;
+    }
+
     public sealed class DiagnosticsRuntime
     {
         public bool WheelLog;
@@ -336,6 +375,7 @@ namespace KeyBank.Core
         public ScrollRuntime Scroll;
         public bool AltMouse;
         public WheelFilterRuntime WheelFilter;
+        public WheelAccelRuntime WheelAccel;
         public DiagnosticsRuntime Diagnostics;
         public HashSet<string> ExcludeApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, HashSet<int>> AppChords = new Dictionary<string, HashSet<int>>();
@@ -366,6 +406,7 @@ namespace KeyBank.Core
             s.DefaultProfile = f.DefaultProfile ?? "";
             s.AltMouse = f.AltMouse;
             s.WheelFilter = CompileWheelFilter(f.WheelFilter ?? new WheelFilterConfig());
+            s.WheelAccel = CompileWheelAccel(f.WheelAccel ?? new WheelAccelConfig());
             s.Diagnostics = CompileDiagnostics(f.Diagnostics ?? new DiagnosticsConfig());
             s.Devices = f.Devices ?? new List<DeviceRule>();
             s.Scroll = CompileScroll(f.EffectiveScroll());
@@ -447,6 +488,37 @@ namespace KeyBank.Core
             r.Enabled = c.Enabled;
             r.WindowMs = c.WindowMs;
             r.ThresholdDelta = c.ThresholdDelta;
+            return r;
+        }
+
+        static WheelAccelRuntime CompileWheelAccel(WheelAccelConfig c)
+        {
+            if (c.GapMs < 20 || c.GapMs > 1000)
+                throw new ConfigException("wheelAccel.gapMs 必須介於 20 到 1000。");
+            if (c.StartTicks < 0 || c.StartTicks > 100)
+                throw new ConfigException("wheelAccel.startTicks 必須介於 0 到 100。");
+            if (c.RampTicks < 0 || c.RampTicks > 100)
+                throw new ConfigException("wheelAccel.rampTicks 必須介於 0 到 100。");
+            if (c.TickBoost < 0 || c.TickBoost > 20)
+                throw new ConfigException("wheelAccel.tickBoost 必須介於 0 到 20。");
+            if (c.TimeStartMs < 0 || c.TimeStartMs > 10000)
+                throw new ConfigException("wheelAccel.timeStartMs 必須介於 0 到 10000。");
+            if (c.TimeRampMs < 0 || c.TimeRampMs > 10000)
+                throw new ConfigException("wheelAccel.timeRampMs 必須介於 0 到 10000。");
+            if (c.TimeBoost < 0 || c.TimeBoost > 20)
+                throw new ConfigException("wheelAccel.timeBoost 必須介於 0 到 20。");
+            if (c.MaxMultiplier < 1 || c.MaxMultiplier > 20)
+                throw new ConfigException("wheelAccel.maxMultiplier 必須介於 1 到 20。");
+            WheelAccelRuntime r = new WheelAccelRuntime();
+            r.Enabled = c.Enabled;
+            r.GapMs = c.GapMs;
+            r.StartTicks = c.StartTicks;
+            r.RampTicks = c.RampTicks;
+            r.TickBoost = c.TickBoost;
+            r.TimeStartMs = c.TimeStartMs;
+            r.TimeRampMs = c.TimeRampMs;
+            r.TimeBoost = c.TimeBoost;
+            r.MaxMultiplier = c.MaxMultiplier;
             return r;
         }
 
@@ -567,6 +639,7 @@ namespace KeyBank.Core
   },
   ""altMouse"": false,
   ""wheelFilter"": { ""enabled"": false, ""windowMs"": 80, ""thresholdDelta"": 120 },
+  ""wheelAccel"": { ""enabled"": false, ""gapMs"": 100, ""startTicks"": 3, ""rampTicks"": 5, ""tickBoost"": 1, ""timeStartMs"": 500, ""timeRampMs"": 1000, ""timeBoost"": 2, ""maxMultiplier"": 5 },
   ""diagnostics"": { ""wheelLog"": true, ""burstGapMs"": 250, ""markKey"": ""F9"" },
   ""excludeApps"": [],
   ""appAltChords"": {

@@ -159,6 +159,7 @@ namespace KeyBank.Core
         readonly Settings settings;
         readonly Func<string> foreground;
         readonly WheelReversalFilter wheelFilter;
+        readonly WheelAccelerator wheelAccel;
         ProfileRuntime profile;
         readonly HashSet<int> mods = new HashSet<int>();
         readonly HashSet<int> chordHeld = new HashSet<int>();
@@ -186,6 +187,7 @@ namespace KeyBank.Core
             this.settings = settings;
             foreground = foregroundApp;
             wheelFilter = new WheelReversalFilter(settings.WheelFilter.WindowMs, settings.WheelFilter.ThresholdDelta);
+            wheelAccel = new WheelAccelerator(settings.WheelAccel);
             profile = settings.Profile(profileName);
         }
 
@@ -263,7 +265,7 @@ namespace KeyBank.Core
             }
 
             if (!settings.AltMouse || alt == AltState.None || ControlOrWinHeld())
-                return Result.Pass;
+                return AccelerateWheel(e, now);
 
             List<Out> outs = new List<Out>();
             if (alt == AltState.Down)
@@ -283,6 +285,18 @@ namespace KeyBank.Core
                 outs.Add(Out.Wheel(e.Delta));
             }
             return Result.Of(outs);
+        }
+
+        // Ctrl and Win held means zoom or a shortcut, and an Alt chord already turned the wheel into Ctrl + wheel,
+        // so neither is a scroll to speed up. A multiplier of 1 passes the physical event through untouched.
+        Result AccelerateWheel(MouseEvent e, long now)
+        {
+            if (e.Kind != MouseKind.Wheel || e.Injected || !settings.WheelAccel.Enabled || ControlOrWinHeld())
+                return Result.Pass;
+            int scaled = wheelAccel.Scale(e.Delta, now);
+            if (scaled == e.Delta)
+                return Result.Pass;
+            return Result.Of(Out.Wheel(scaled));
         }
 
         public List<Out> Tick(long now)

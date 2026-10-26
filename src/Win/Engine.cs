@@ -527,6 +527,8 @@ namespace KeyBank.Win
                 filtered.ProcessMouse(MouseEvent.Wheel(120), t += 10);
                 built.AddRange(filtered.ProcessMouse(MouseEvent.Wheel(-30), t += 10).Emit);
                 built.AddRange(filtered.ProcessMouse(MouseEvent.Wheel(120), t += 10).Emit);
+                for (int i = 0; i < 8; i++)
+                    built.AddRange(filtered.ProcessMouse(MouseEvent.Wheel(120), t += 20).Emit);
                 built.AddRange(p.Tick(t + 1000));
                 built.AddRange(p.SetProfile(name));
                 built.AddRange(p.ReleaseAll());
@@ -556,16 +558,16 @@ namespace KeyBank.Win
             Interlocked.Exchange(ref prewarmMs, sw.ElapsedMilliseconds);
         }
 
-        // Throwaway settings with the wheel filter on, independent of the user's config, so the first real drop is already JIT-compiled.
+        // Throwaway settings with the wheel filter and accelerator on, independent of the user's config, so the first real drop is already JIT-compiled.
         Settings WheelFilterWarmSettings()
         {
             return Settings.Compile(ConfigFile.Parse(
-                "{\"defaultProfile\":\"w\",\"wheelFilter\":{\"enabled\":true},\"profiles\":{\"w\":{\"description\":\"w\"}}}"));
+                "{\"defaultProfile\":\"w\",\"wheelFilter\":{\"enabled\":true},\"wheelAccel\":{\"enabled\":true},\"profiles\":{\"w\":{\"description\":\"w\"}}}"));
         }
 
         void ApplyMouseHook()
         {
-            bool want = cur.AltMouse || cur.WheelFilter.Enabled || cur.Diagnostics.WheelLog;
+            bool want = cur.AltMouse || cur.WheelFilter.Enabled || cur.WheelAccel.Enabled || cur.Diagnostics.WheelLog;
             if (want && !mouse.Installed)
             {
                 if (!mouse.Install())
