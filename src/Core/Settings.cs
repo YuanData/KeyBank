@@ -45,6 +45,8 @@ namespace KeyBank.Core
     public class WheelAccelConfig
     {
         public bool Enabled = false;
+        // 1 to 5 picks a preset and ignores the numbers below. 0 uses the numbers below as written.
+        public int Gear = WheelAccelerator.DefaultGear;
         public int GapMs = WheelAccelerator.DefaultGapMs;
         public double StartTicks = WheelAccelerator.DefaultStartTicks;
         public double RampTicks = WheelAccelerator.DefaultRampTicks;
@@ -53,6 +55,11 @@ namespace KeyBank.Core
         public int TimeRampMs = WheelAccelerator.DefaultTimeRampMs;
         public double TimeBoost = WheelAccelerator.DefaultTimeBoost;
         public double MaxMultiplier = WheelAccelerator.DefaultMaxMultiplier;
+        public int ChainGapMs = WheelAccelerator.DefaultChainGapMs;
+        public int ChainStart1 = WheelAccelerator.DefaultChainStart1;
+        public double ChainBoost1 = 0;
+        public int ChainStart2 = WheelAccelerator.DefaultChainStart2;
+        public double ChainBoost2 = 0;
     }
 
     public class DiagnosticsConfig
@@ -209,6 +216,7 @@ namespace KeyBank.Core
             WheelAccelConfig wa = WheelAccel ?? new WheelAccelConfig();
             Dictionary<string, object> accel = new Dictionary<string, object>();
             accel["enabled"] = wa.Enabled;
+            accel["gear"] = wa.Gear;
             accel["gapMs"] = wa.GapMs;
             accel["startTicks"] = wa.StartTicks;
             accel["rampTicks"] = wa.RampTicks;
@@ -217,6 +225,11 @@ namespace KeyBank.Core
             accel["timeRampMs"] = wa.TimeRampMs;
             accel["timeBoost"] = wa.TimeBoost;
             accel["maxMultiplier"] = wa.MaxMultiplier;
+            accel["chainGapMs"] = wa.ChainGapMs;
+            accel["chainStart1"] = wa.ChainStart1;
+            accel["chainBoost1"] = wa.ChainBoost1;
+            accel["chainStart2"] = wa.ChainStart2;
+            accel["chainBoost2"] = wa.ChainBoost2;
             root["wheelAccel"] = accel;
             DiagnosticsConfig dg = Diagnostics ?? new DiagnosticsConfig();
             Dictionary<string, object> diag = new Dictionary<string, object>();
@@ -348,6 +361,7 @@ namespace KeyBank.Core
     public sealed class WheelAccelRuntime
     {
         public bool Enabled;
+        public int Gear;
         public int GapMs;
         public double StartTicks;
         public double RampTicks;
@@ -356,6 +370,11 @@ namespace KeyBank.Core
         public int TimeRampMs;
         public double TimeBoost;
         public double MaxMultiplier;
+        public int ChainGapMs;
+        public int ChainStart1;
+        public double ChainBoost1;
+        public int ChainStart2;
+        public double ChainBoost2;
     }
 
     public sealed class DiagnosticsRuntime
@@ -493,6 +512,8 @@ namespace KeyBank.Core
 
         static WheelAccelRuntime CompileWheelAccel(WheelAccelConfig c)
         {
+            if (c.Gear < WheelAccelerator.CustomGear || c.Gear > WheelAccelerator.MaxGear)
+                throw new ConfigException("wheelAccel.gear 必須介於 0 到 5（0 是使用下列自訂數值）。");
             if (c.GapMs < 20 || c.GapMs > 1000)
                 throw new ConfigException("wheelAccel.gapMs 必須介於 20 到 1000。");
             if (c.StartTicks < 0 || c.StartTicks > 100)
@@ -509,8 +530,19 @@ namespace KeyBank.Core
                 throw new ConfigException("wheelAccel.timeBoost 必須介於 0 到 20。");
             if (c.MaxMultiplier < 1 || c.MaxMultiplier > 20)
                 throw new ConfigException("wheelAccel.maxMultiplier 必須介於 1 到 20。");
+            if (c.ChainGapMs < 100 || c.ChainGapMs > 10000)
+                throw new ConfigException("wheelAccel.chainGapMs 必須介於 100 到 10000。");
+            if (c.ChainStart1 < 1 || c.ChainStart1 > 50)
+                throw new ConfigException("wheelAccel.chainStart1 必須介於 1 到 50。");
+            if (c.ChainStart2 < c.ChainStart1 || c.ChainStart2 > 50)
+                throw new ConfigException("wheelAccel.chainStart2 必須介於 chainStart1 到 50。");
+            if (c.ChainBoost1 < 0 || c.ChainBoost1 > 20)
+                throw new ConfigException("wheelAccel.chainBoost1 必須介於 0 到 20。");
+            if (c.ChainBoost2 < 0 || c.ChainBoost2 > 20)
+                throw new ConfigException("wheelAccel.chainBoost2 必須介於 0 到 20。");
             WheelAccelRuntime r = new WheelAccelRuntime();
             r.Enabled = c.Enabled;
+            r.Gear = c.Gear;
             r.GapMs = c.GapMs;
             r.StartTicks = c.StartTicks;
             r.RampTicks = c.RampTicks;
@@ -519,6 +551,12 @@ namespace KeyBank.Core
             r.TimeRampMs = c.TimeRampMs;
             r.TimeBoost = c.TimeBoost;
             r.MaxMultiplier = c.MaxMultiplier;
+            r.ChainGapMs = c.ChainGapMs;
+            r.ChainStart1 = c.ChainStart1;
+            r.ChainBoost1 = c.ChainBoost1;
+            r.ChainStart2 = c.ChainStart2;
+            r.ChainBoost2 = c.ChainBoost2;
+            WheelAccelerator.ApplyGear(c.Gear, r);
             return r;
         }
 
@@ -639,7 +677,7 @@ namespace KeyBank.Core
   },
   ""altMouse"": false,
   ""wheelFilter"": { ""enabled"": false, ""windowMs"": 80, ""thresholdDelta"": 120 },
-  ""wheelAccel"": { ""enabled"": false, ""gapMs"": 100, ""startTicks"": 3, ""rampTicks"": 5, ""tickBoost"": 1, ""timeStartMs"": 500, ""timeRampMs"": 1000, ""timeBoost"": 2, ""maxMultiplier"": 5 },
+  ""wheelAccel"": { ""enabled"": false, ""gear"": 3, ""gapMs"": 100, ""startTicks"": 3, ""rampTicks"": 5, ""tickBoost"": 1, ""timeStartMs"": 500, ""timeRampMs"": 1000, ""timeBoost"": 2, ""maxMultiplier"": 5, ""chainGapMs"": 1200, ""chainStart1"": 3, ""chainBoost1"": 0, ""chainStart2"": 5, ""chainBoost2"": 0 },
   ""diagnostics"": { ""wheelLog"": true, ""burstGapMs"": 250, ""markKey"": ""F9"" },
   ""excludeApps"": [],
   ""appAltChords"": {

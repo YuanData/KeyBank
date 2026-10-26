@@ -188,9 +188,15 @@ static class CoreTests
 
     static WheelAccelerator Accel(string find, string replace)
     {
-        string json = Cfg.Replace("\"wheelAccel\": { \"enabled\": false", "\"wheelAccel\": { \"enabled\": true");
+        string json = Cfg.Replace("\"wheelAccel\": { \"enabled\": false, \"gear\": 3", "\"wheelAccel\": { \"enabled\": true, \"gear\": 0");
         if (find != null)
             json = json.Replace(find, replace);
+        return new WheelAccelerator(Settings.Load(json).WheelAccel);
+    }
+
+    static WheelAccelerator GearAccel(int gear)
+    {
+        string json = Cfg.Replace("\"wheelAccel\": { \"enabled\": false, \"gear\": 3", "\"wheelAccel\": { \"enabled\": true, \"gear\": " + gear);
         return new WheelAccelerator(Settings.Load(json).WheelAccel);
     }
 
@@ -235,12 +241,33 @@ static class CoreTests
         a.Reset();
         Expect("accel: reset forgets the burst", "120", a.Scale(120, 10).ToString());
 
-        string on = Cfg.Replace("\"wheelAccel\": { \"enabled\": false", "\"wheelAccel\": { \"enabled\": true");
+        string on = Cfg.Replace("\"wheelAccel\": { \"enabled\": false, \"gear\": 3", "\"wheelAccel\": { \"enabled\": true, \"gear\": 0");
         Expect("accel: off by default in the shipped config", "False", Settings.Load(Cfg).WheelAccel.Enabled.ToString());
         Expect("accel: config values are read", "True/100/5", Settings.Load(on).WheelAccel.Enabled + "/" + Settings.Load(on).WheelAccel.GapMs + "/" + Settings.Load(on).WheelAccel.MaxMultiplier);
         Expect("accel: a file without the section keeps it off", "False",
             Settings.Load(Cfg.Substring(0, Cfg.IndexOf("  \"wheelAccel\"")) + Cfg.Substring(Cfg.IndexOf("  \"diagnostics\""))).WheelAccel.Enabled.ToString());
         Expect("accel: written back by ToJson", "True", Settings.Load(on).File.ToJson().Contains("\"wheelAccel\"").ToString());
+        Expect("accel: gear 3 is the shipped default", "3", Settings.Load(Cfg).WheelAccel.Gear.ToString());
+        Expect("accel: gear 3 reaches its cap within one burst", "120 280 440 600 600",
+            AccelRun(GearAccel(3), 120, 5, 40, 0));
+        Expect("accel: gear 1 starts gently", "120 120 120 140", AccelRun(GearAccel(1), 120, 4, 40, 0));
+        Expect("accel: gear 5 boosts from the first tick", "660 1200 1200", AccelRun(GearAccel(5), 120, 3, 40, 0));
+        Expect("accel: a preset ignores the custom numbers", "120 280",
+            AccelRun(new WheelAccelerator(Settings.Load(Cfg.Replace("\"gapMs\": 100", "\"gapMs\": 999").Replace("\"enabled\": false, \"gear\": 3", "\"enabled\": true, \"gear\": 3")).WheelAccel), 120, 2, 40, 0));
+        WheelAccelerator chain = Accel("\"chainBoost1\": 0", "\"chainBoost1\": 1");
+        Expect("accel chain: bursts 1 and 2 pass, burst 3 is doubled", "120 120 240 240",
+            AccelRun(chain, 120, 1, 40, 0) + " " + AccelRun(chain, 120, 1, 40, 400) + " " + AccelRun(chain, 120, 1, 40, 800) + " " + AccelRun(chain, 120, 1, 40, 1200));
+        chain = Accel("\"chainBoost1\": 0, \"chainStart2\": 5, \"chainBoost2\": 0", "\"chainBoost1\": 1, \"chainStart2\": 5, \"chainBoost2\": 3");
+        Expect("accel chain: burst 5 and later get the larger boost", "120 120 240 240 480 480",
+            AccelRun(chain, 120, 1, 40, 0) + " " + AccelRun(chain, 120, 1, 40, 400) + " " + AccelRun(chain, 120, 1, 40, 800) + " " + AccelRun(chain, 120, 1, 40, 1200) + " " + AccelRun(chain, 120, 1, 40, 1600) + " " + AccelRun(chain, 120, 1, 40, 2000));
+        Expect("accel chain: bursts counted", "6", chain.Bursts.ToString());
+        Expect("accel chain: a pause longer than the chain gap restarts the count", "120 1",
+            chain.Scale(120, 2000 + 1201).ToString() + " " + chain.Bursts);
+        chain = Accel("\"chainBoost1\": 0", "\"chainBoost1\": 1");
+        AccelRun(chain, 120, 1, 40, 0);
+        AccelRun(chain, 120, 1, 40, 400);
+        Expect("accel chain: reversing direction restarts the count", "-120 1", chain.Scale(-120, 800).ToString() + " " + chain.Bursts);
+        ExpectThrows("accel: gear out of range", "wheelAccel.gear", Cfg.Replace("\"gear\": 3", "\"gear\": 6"));
         ExpectThrows("accel: gap too small", "wheelAccel.gapMs", Cfg.Replace("\"gapMs\": 100", "\"gapMs\": 5"));
         ExpectThrows("accel: cap below one", "wheelAccel.maxMultiplier", Cfg.Replace("\"maxMultiplier\": 5", "\"maxMultiplier\": 0.5"));
 

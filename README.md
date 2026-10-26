@@ -42,12 +42,15 @@
 - 如果停止捲動時仍偶爾反彈：反彈可能晚於時間窗才出現，或位移量大於門檻，所以沒被丟掉。用 `tests\WheelCapture.ps1` 記錄實際的間隔與位移量，再依資料調整 `windowMs` 與 `thresholdDelta`。追蹤格式為 `wheel(-120) => pass gap=35ms`，被丟棄的事件結尾會有 `wheelfilter`。
 
 **滾輪加速（預設關閉）**
-- 持續轉動滾輪時放大滾動量。兩段倍率相加：累積格數（預設第 3 格起，5 格內升到 ×2）、持續時間（預設滿 500 毫秒起，再經 1000 毫秒加到最多 +2），總倍率上限預設 5 倍。
-- 兩格間隔超過 `gapMs`（預設 100 毫秒）或方向改變，就重新計算。倍率為 1 時事件原樣放行，不經過注入。
-- 按住 Ctrl 或 Win（縮放、快捷鍵）、Alt 加滑鼠變 Ctrl 時不加速；其他程式注入的滾輪事件不處理。
-- 與反向抑制並用時，先抑制再加速。
-- 開啟：右鍵選單勾「滾輪加速」，或設定檔 `wheelAccel.enabled` 改成 `true`。參數 `gapMs`、`startTicks`、`rampTicks`、`tickBoost`、`timeStartMs`、`timeRampMs`、`timeBoost`、`maxMultiplier` 只能在設定檔調整。
-- 預設值是起點，需要實機調整手感。
+- 持續轉動滾輪時放大滾動量。托盤選單「滾輪加速」可選關閉、1 到 5 檔、自訂；設定檔 `wheelAccel.gear` 同義（1 到 5 是預設檔位，0 是用下列自訂數值）。
+- 倍率由三段相加，上限依檔位（1 檔 3 倍、3 檔 8 倍、5 檔 16 倍）：
+  - 同一次滾動內累積的格數；
+  - 同一次滾動持續的時間；
+  - 「滾、自然停頓、再滾」連續出現的次數：第 3 次起加一段，第 5 次起再加一段。停頓超過 `chainGapMs` 或方向改變，次數重算。
+- 兩格間隔超過 `gapMs` 算新的一次滾動。倍率為 1 時事件原樣放行，不經過注入。
+- 按住 Ctrl 或 Win（縮放、快捷鍵）、Alt 加滑鼠變 Ctrl 時不加速；其他程式注入的滾輪事件不處理。與反向抑制並用時，先抑制再加速。
+- 自訂參數：`gapMs`、`startTicks`、`rampTicks`、`tickBoost`、`timeStartMs`、`timeRampMs`、`timeBoost`、`maxMultiplier`、`chainGapMs`、`chainStart1`、`chainBoost1`、`chainStart2`、`chainBoost2`，只能在設定檔調整，且只在 `gear` 為 0 時生效。
+- 檔位數值依實測的滾輪記錄推算，仍需要實機調整手感。
 
 **滾輪記錄（常駐，預設開啟）**
 - 為了追查「往下滾動停止時偶爾反彈」，KeyBank 會把每個捲動段落記成一行，寫在 `%LOCALAPPDATA%\KeyBank\logs\wheel.log`，超過 2 MB 輪替成 `wheel.log.1`。

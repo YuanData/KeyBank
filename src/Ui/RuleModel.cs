@@ -214,7 +214,7 @@ namespace KeyBank.Ui
             WheelAccelRuntime wa = s.WheelAccel;
             rows.Add(wa.Enabled
                 ? Row(CatWheel, "滾輪（持續轉動時）",
-                    "加速；間隔不超過 " + wa.GapMs.ToString(CultureInfo.InvariantCulture) + " 毫秒算連續，上限 " + wa.MaxMultiplier.ToString("0.##", CultureInfo.InvariantCulture) + " 倍",
+                    "加速（" + (wa.Gear == 0 ? "自訂" : wa.Gear.ToString(CultureInfo.InvariantCulture) + " 檔") + "）；間隔不超過 " + wa.GapMs.ToString(CultureInfo.InvariantCulture) + " 毫秒算連續，上限 " + wa.MaxMultiplier.ToString("0.##", CultureInfo.InvariantCulture) + " 倍",
                     "累積格數與持續時間各加一段倍率；停頓或反向即重算")
                 : Row(CatWheel, "滾輪（持續轉動時）", "已關閉", "累積格數與持續時間各加一段倍率；停頓或反向即重算"));
 

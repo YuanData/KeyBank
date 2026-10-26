@@ -85,6 +85,7 @@ namespace KeyBank.Win
 
         [ThreadStatic] static bool inMouseCallback;
         int injectionInMouseCallback;
+        long lastShortInjectionMs = long.MinValue / 2;
         volatile bool pauseMouseDrain;
 
         // Written by the hook thread, read from any thread.
@@ -316,13 +317,25 @@ namespace KeyBank.Win
             {
                 try
                 {
-                    Send(batch);
+                    int sent = Send(batch);
+                    if (sent != batch.Count)
+                        NoteShortInjection(sent, batch.Count);
                 }
                 catch (Exception ex)
                 {
                     CrashLog.Write("mouse inject failed: " + ex);
                 }
             }
+        }
+
+        // SendInput accepted fewer events than asked, which means UIPI or another hook blocked them.
+        void NoteShortInjection(int sent, int wanted)
+        {
+            long now = NowMs();
+            if (now - lastShortInjectionMs < 5000)
+                return;
+            lastShortInjectionMs = now;
+            CrashLog.Write("mouse inject short: " + sent + " of " + wanted + ", error " + Marshal.GetLastWin32Error());
         }
 
         void DiscardMouseOut()
@@ -781,7 +794,7 @@ namespace KeyBank.Win
             dropped = r.Handled && r.Emit.Count == 0;
 
             // Wheel events are traced even when passed, so the real bounce timing can be read back.
-            if (trace && (r.Handled || e.Kind == MouseKind.Wheel))
+            if (trace && (r.Handled || e.Kind == MouseKind.Wheel || e.Kind == MouseKind.Button))
             {
                 TraceEntry t = new TraceEntry();
                 t.At = now;

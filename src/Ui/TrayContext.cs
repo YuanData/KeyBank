@@ -131,7 +131,11 @@ namespace KeyBank.Ui
 
             WheelAccelItem = new ToolStripMenuItem("滾輪加速");
             WheelAccelItem.Checked = s.WheelAccel.Enabled;
-            WheelAccelItem.Click += delegate { ToggleWheelAccel(); };
+            AddAccelChoice("關閉", -1, !s.WheelAccel.Enabled);
+            string[] gearNames = { "1 檔（輕）", "2 檔", "3 檔（建議）", "4 檔", "5 檔（極強）" };
+            for (int g = 1; g <= gearNames.Length; g++)
+                AddAccelChoice(gearNames[g - 1], g, s.WheelAccel.Enabled && s.WheelAccel.Gear == g);
+            AddAccelChoice("自訂（用設定檔數值）", WheelAccelerator.CustomGear, s.WheelAccel.Enabled && s.WheelAccel.Gear == WheelAccelerator.CustomGear);
             menu.Items.Add(WheelAccelItem);
 
             TuneItem = new ToolStripMenuItem("捲動微調…");
@@ -239,13 +243,23 @@ namespace KeyBank.Ui
             });
         }
 
-        internal void ToggleWheelAccel()
+        void AddAccelChoice(string text, int gear, bool selected)
         {
-            bool target = !host.Settings.WheelAccel.Enabled;
+            ToolStripMenuItem item = new ToolStripMenuItem(text);
+            item.Checked = selected;
+            item.Click += delegate { SetWheelAccel(gear); };
+            WheelAccelItem.DropDownItems.Add(item);
+        }
+
+        // gear -1 turns acceleration off and keeps the stored gear.
+        internal void SetWheelAccel(int gear)
+        {
             Apply(delegate(ConfigFile f)
             {
                 f.WheelAccel = f.WheelAccel ?? new WheelAccelConfig();
-                f.WheelAccel.Enabled = target;
+                f.WheelAccel.Enabled = gear >= 0;
+                if (gear >= 0)
+                    f.WheelAccel.Gear = gear;
             });
         }
 
