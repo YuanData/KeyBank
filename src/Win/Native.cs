@@ -50,22 +50,6 @@ namespace KeyBank.Win
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    internal struct RAWINPUTDEVICE
-    {
-        public ushort usUsagePage;
-        public ushort usUsage;
-        public uint dwFlags;
-        public IntPtr hwndTarget;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct RAWINPUTDEVICELIST
-    {
-        public IntPtr hDevice;
-        public uint dwType;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
     internal struct POINT
     {
         public int x;
@@ -124,12 +108,6 @@ namespace KeyBank.Win
         public const uint KEYEVENTF_KEYUP = 0x0002;
         public const uint MOUSEEVENTF_WHEEL = 0x0800;
         public const uint MAPVK_VK_TO_VSC = 0;
-
-        public const uint RIM_TYPEKEYBOARD = 1;
-        public const uint RIDI_DEVICENAME = 0x20000007;
-        public const uint RID_INPUT = 0x10000003;
-        public const uint RIDEV_INPUTSINK = 0x00000100;
-        public static readonly IntPtr HWND_MESSAGE = new IntPtr(-3);
 
         public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 
@@ -197,18 +175,5 @@ namespace KeyBank.Win
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool QueryFullProcessImageName(IntPtr hProcess, uint flags, StringBuilder exeName, ref uint size);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool RegisterRawInputDevices([In] RAWINPUTDEVICE[] devices, uint count, uint size);
-
-        [DllImport("user32.dll")]
-        public static extern uint GetRawInputData(IntPtr hRawInput, uint command, byte[] data, ref uint size, uint headerSize);
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern uint GetRawInputDeviceInfo(IntPtr hDevice, uint command, StringBuilder data, ref uint size);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern uint GetRawInputDeviceList([Out] RAWINPUTDEVICELIST[] list, ref uint count, uint size);
     }
 }

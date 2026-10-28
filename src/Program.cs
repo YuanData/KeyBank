@@ -16,12 +16,6 @@ namespace KeyBank
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            if (Array.IndexOf(args, "--list-devices") >= 0)
-            {
-                MessageBox.Show(Engine.DescribeKeyboards(), "KeyBank 鍵盤清單");
-                return 0;
-            }
-
             string configPath = ValueOf(args, "--config");
             bool trace = Array.IndexOf(args, "--trace") >= 0;
             bool quit = Array.IndexOf(args, "--quit") >= 0;

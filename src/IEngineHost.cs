@@ -8,7 +8,6 @@ namespace KeyBank
         Settings Settings { get; }
         string ConfigPath { get; }
         string LastError { get; }
-        string ActiveProfileName { get; }
         string LastKeyText { get; }
         event EventHandler Changed;
 

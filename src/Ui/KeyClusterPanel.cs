@@ -35,7 +35,7 @@ namespace KeyBank.Ui
             MinimumSize = new Size(1, 1);
         }
 
-        public void SetProfile(ProfileRuntime p)
+        public void SetRules(KeyRules p)
         {
             cells = RuleModel.BuildCluster(p);
             hasRules = p.Remap.Count > 0 || p.TapHold.Count > 0;

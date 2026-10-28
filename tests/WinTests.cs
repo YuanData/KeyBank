@@ -46,7 +46,6 @@ static partial class WinTests
 
     static int Main(string[] args)
     {
-        VendorTests();
         InjectorTests();
         MouseParseTests();
         ForegroundTests();
@@ -60,16 +59,6 @@ static partial class WinTests
         try { Directory.Delete(SharedLogDir, true); } catch (IOException) { }
         Console.WriteLine("passed " + passed + ", failed " + failed);
         return failed == 0 ? 0 : 1;
-    }
-
-    static void VendorTests()
-    {
-        Expect("usb", "046D", DeviceTracker.ExtractVendorId(@"\\?\HID#VID_046D&PID_C52B&MI_00#7&abc&0&0000#{884b96c3-56ef-11d1-bc8c-00a0c91405dd}"));
-        Expect("usb lowercase", "3434", DeviceTracker.ExtractVendorId(@"\\?\hid#vid_3434&pid_0761#6&1&0&0000"));
-        Expect("bt keychron", "3434", DeviceTracker.ExtractVendorId(@"HID\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&013434_PID&0761_REV&0001_E545284D197D&COL01\9&7BF0E53&0&0000"));
-        Expect("bt logitech", "046D", DeviceTracker.ExtractVendorId(@"HID\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&02046D_PID&B01A_REV&0001_E545284D197D&COL01\9&7BF0E53&0&0000"));
-        Expect("ps2", null, DeviceTracker.ExtractVendorId(@"ACPI\MSFT0001\4&7661197&0"));
-        Expect("null path", null, DeviceTracker.ExtractVendorId(null));
     }
 
     static void InjectorTests()
@@ -274,11 +263,11 @@ static partial class WinTests
             store.Changed += delegate { changes++; };
 
             Expect("default created", true, File.Exists(path));
-            Expect("default parses", "full", store.Settings.DefaultProfile);
+            Expect("default parses", false, store.Settings.NumpadSixKeys);
             Expect("default no error", null, store.LastError);
 
-            string edited = File.ReadAllText(path).Replace("\"enabled\": true,\n  \"activeProfile\"", "\"enabled\": false,\n  \"activeProfile\"")
-                .Replace("\"enabled\": true,\r\n  \"activeProfile\"", "\"enabled\": false,\r\n  \"activeProfile\"");
+            string edited = File.ReadAllText(path).Replace("\"enabled\": true,\n  \"numpadSixKeys\"", "\"enabled\": false,\n  \"numpadSixKeys\"")
+                .Replace("\"enabled\": true,\r\n  \"numpadSixKeys\"", "\"enabled\": false,\r\n  \"numpadSixKeys\"");
             File.WriteAllText(path, edited);
             Expect("reload on edit", true, WaitFor(delegate { return !store.Settings.Enabled; }, 3000));
             Expect("reload raised Changed", true, changes >= 1);
@@ -307,7 +296,7 @@ static partial class WinTests
             bool threw = false;
             try
             {
-                store.Mutate(delegate(ConfigFile f) { f.DefaultProfile = "nope"; });
+                store.Mutate(delegate(ConfigFile f) { f.AltChords = new List<string>(new string[] { "Nope" }); });
             }
             catch (ConfigException)
             {
@@ -315,7 +304,7 @@ static partial class WinTests
             }
             Expect("invalid mutate throws", true, threw);
             Expect("invalid mutate leaves file", text, File.ReadAllText(path));
-            Expect("invalid mutate leaves settings", "full", store.Settings.DefaultProfile);
+            Expect("invalid mutate leaves settings", 7, store.Settings.Keys.AltChords.Count);
             Pump(600);
             Expect("invalid mutate raised nothing", before, changes);
 
@@ -324,7 +313,7 @@ static partial class WinTests
             ConfigStore broken = null;
             File.WriteAllText(path, "nonsense");
             broken = new ConfigStore(path);
-            Expect("broken at startup falls back to default", "full", broken.Settings.DefaultProfile);
+            Expect("broken at startup falls back to default", 7, broken.Settings.Keys.AltChords.Count);
             Expect("broken at startup reports", true, broken.LastError != null);
             broken.Dispose();
         }
@@ -422,24 +411,23 @@ static partial class WinTests
         Console.WriteLine("hook: Install=" + installed + " Uninstall=" + uninstalled + " keys seen=" + seen);
     }
 
-    static string ConfigJson(bool altMouse, string defaultProfile, bool remapF12)
+    static string ConfigJson(bool altMouse, bool remapF12)
     {
-        return ConfigJson(altMouse, false, defaultProfile, remapF12);
+        return ConfigJson(altMouse, false, remapF12);
     }
 
-    static string ConfigJson(bool altMouse, bool wheelFilter, string defaultProfile, bool remapF12)
+    static string ConfigJson(bool altMouse, bool wheelFilter, bool remapF12)
     {
-        return ConfigJson(altMouse, wheelFilter, defaultProfile, remapF12, "{\"wheelLog\":false}");
+        return ConfigJson(altMouse, wheelFilter, remapF12, "{\"wheelLog\":false}");
     }
 
-    static string ConfigJson(bool altMouse, bool wheelFilter, string defaultProfile, bool remapF12, string diagnostics)
+    // remapF12 turns numpadSixKeys on with a single F12 to F11 rule, so one key proves the rules reached the hook.
+    static string ConfigJson(bool altMouse, bool wheelFilter, bool remapF12, string diagnostics)
     {
         string remap = remapF12 ? "{\"from\":\"F12\",\"to\":\"F11\"}" : "";
-        return "{\"enabled\":true,\"activeProfile\":\"auto\",\"defaultProfile\":\"" + defaultProfile + "\","
+        return "{\"enabled\":true,\"numpadSixKeys\":" + (remapF12 ? "true" : "false") + ",\"altChords\":[],\"numpadRemap\":[" + remap + "],\"tapHold\":[],"
             + "\"scroll\":{\"enabled\":false,\"stepTicks\":4,\"pageTicks\":8,\"burstTaps\":3,\"burstIntervalMs\":400,\"holdRepeatsPerSec\":8,\"apps\":{}},"
-            + "\"altMouse\":" + (altMouse ? "true" : "false") + ",\"wheelFilter\":{\"enabled\":" + (wheelFilter ? "true" : "false") + "},\"diagnostics\":" + diagnostics + ",\"excludeApps\":[],\"appAltChords\":{},\"devices\":[],"
-            + "\"profiles\":{\"p\":{\"description\":\"neutral\",\"altChords\":[],\"remap\":[" + remap + "],\"tapHold\":[]},"
-            + "\"q\":{\"description\":\"other\",\"altChords\":[],\"remap\":[],\"tapHold\":[]}}}";
+            + "\"altMouse\":" + (altMouse ? "true" : "false") + ",\"wheelFilter\":{\"enabled\":" + (wheelFilter ? "true" : "false") + "},\"diagnostics\":" + diagnostics + ",\"excludeApps\":[],\"appAltChords\":{}}";
     }
 
     static int sends;
@@ -483,7 +471,7 @@ static partial class WinTests
 
     static string WheelTrace(string dir, string path)
     {
-        File.WriteAllText(path, ConfigJson(false, true, "p", false));
+        File.WriteAllText(path, ConfigJson(false, true, false));
         Engine traced = new Engine(path, true, Options());
         traced.MouseForTest(MouseEvent.Wheel(120));
         traced.MouseForTest(MouseEvent.Wheel(-30));
@@ -493,7 +481,7 @@ static partial class WinTests
 
     static void WheelFilterEngineTests(string path)
     {
-        File.WriteAllText(path, ConfigJson(false, true, "p", false));
+        File.WriteAllText(path, ConfigJson(false, true, false));
         Engine e = new Engine(path, false, Options());
         try
         {
@@ -528,7 +516,7 @@ static partial class WinTests
         }
         ShutdownChecks("wheelFilter", e);
 
-        File.WriteAllText(path, ConfigJson(false, false, "p", false));
+        File.WriteAllText(path, ConfigJson(false, false, false));
         Engine none = new Engine(path, false, Options());
         try
         {
@@ -566,7 +554,7 @@ static partial class WinTests
         try
         {
             string path = Path.Combine(dir, "config.json");
-            File.WriteAllText(path, ConfigJson(false, "p", false));
+            File.WriteAllText(path, ConfigJson(false, false));
             int mainId = Thread.CurrentThread.ManagedThreadId;
 
             for (int cycle = 1; cycle <= 2; cycle++)
@@ -576,7 +564,6 @@ static partial class WinTests
                 Expect(c + " hook thread alive", true, engine.HookThreadAlive);
                 Expect(c + " keyboard hook installed", true, engine.KeyboardHookInstalled);
                 Expect(c + " prewarm ran", true, engine.Prewarmed);
-                Expect(c + " profile", "p", engine.ActiveProfileName);
                 Expect(c + " mouse hook not installed by default", false, engine.MouseHookInstalled);
                 Expect(c + " hook thread is not the UI thread", true, engine.HookThreadManagedId != mainId);
 
@@ -650,29 +637,29 @@ static partial class WinTests
 
             WheelFilterEngineTests(path);
 
-            File.WriteAllText(path, ConfigJson(true, "p", false));
+            File.WriteAllText(path, ConfigJson(true, false));
             engine = new Engine(path, false, Options());
             Expect("altMouse true at startup installs mouse hook", true, engine.MouseHookInstalled);
             engine.Shutdown();
             ShutdownChecks("altMouse startup", engine);
             engine = null;
 
-            File.WriteAllText(path, ConfigJson(false, "p", false));
+            File.WriteAllText(path, ConfigJson(false, false));
             engine = new Engine(path, false, Options());
             Engine swap = engine;
             int changedThread = -1;
             int changedCount = 0;
             swap.Changed += delegate { changedThread = Thread.CurrentThread.ManagedThreadId; changedCount++; };
-            swap.Mutate(delegate(ConfigFile f) { f.DefaultProfile = "q"; });
-            Expect("settings swap reaches hook thread", true, WaitFor(delegate { return swap.ActiveProfileName == "q"; }, 3000));
+            swap.Mutate(delegate(ConfigFile f) { f.NumpadSixKeys = true; });
+            Expect("settings swap reaches hook thread", true, WaitFor(delegate { return swap.AppliedSettings.NumpadSixKeys; }, 3000));
             Expect("Changed raised after swap", true, WaitFor(delegate { return changedCount >= 1; }, 3000));
             Expect("Changed arrives on the captured thread", mainId, changedThread);
-            Expect("engine Settings reflects swap", "q", swap.Settings.DefaultProfile);
+            Expect("engine Settings reflects swap", true, swap.Settings.NumpadSixKeys);
             swap.Shutdown();
             ShutdownChecks("settings swap", swap);
             engine = null;
 
-            File.WriteAllText(path, ConfigJson(false, "p", true));
+            File.WriteAllText(path, ConfigJson(false, true));
             EngineOptions slow = Options();
             slow.SlowCallbackMs = 40;
             slow.Send = delegate(List<Out> outs) { Thread.Sleep(120); Interlocked.Add(ref sends, outs.Count); return outs.Count; };
@@ -687,7 +674,7 @@ static partial class WinTests
             ShutdownChecks("slow callback", engine);
             engine = null;
 
-            File.WriteAllText(path, ConfigJson(false, "p", false));
+            File.WriteAllText(path, ConfigJson(false, false));
             File.Delete(CrashLog.Path);
             int exitCode = -1;
             EngineOptions stall = Options();
@@ -753,7 +740,7 @@ static partial class WinTests
         {
             string path = Path.Combine(dir, "config.json");
 
-            File.WriteAllText(path, ConfigJson(true, "p", false));
+            File.WriteAllText(path, ConfigJson(true, false));
             SendLog log = new SendLog();
             e = new Engine(path, false, Recording(log));
             Expect("queue: alt down passes", false, e.KeyForTest(Vk.LAlt, true));
@@ -789,7 +776,7 @@ static partial class WinTests
             Expect("queue: guard zero at the end", 0, e.InjectionsInMouseCallback);
             e = null;
 
-            File.WriteAllText(path, ConfigJson(false, true, "p", false));
+            File.WriteAllText(path, ConfigJson(false, true, false));
             SendLog wlog = new SendLog();
             e = new Engine(path, false, Recording(wlog));
             Expect("queue: wheel passes first", false, e.MouseForTest(MouseEvent.Wheel(120)));
@@ -799,7 +786,7 @@ static partial class WinTests
             e.Shutdown();
             e = null;
 
-            File.WriteAllText(path, ConfigJson(true, "p", false));
+            File.WriteAllText(path, ConfigJson(true, false));
             SendLog slog = new SendLog();
             e = new Engine(path, false, Recording(slog));
             e.KeyForTest(Vk.LAlt, true);

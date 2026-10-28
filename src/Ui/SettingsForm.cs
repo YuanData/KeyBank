@@ -9,25 +9,15 @@ namespace KeyBank.Ui
 {
     public sealed class SettingsForm : Form
     {
-        sealed class ProfileChoice
-        {
-            public string Name;
-            public string Text;
-            public override string ToString() { return Text; }
-        }
-
         readonly IEngineHost host;
         readonly Label keyboardLabel = new Label();
         readonly Label stateLabel = new Label();
-        readonly ComboBox profileBox = new ComboBox();
         readonly KeyClusterPanel cluster = new KeyClusterPanel();
         readonly ListView rules = new ListView();
         readonly Label lastKeyLabel = new Label();
         readonly LinkLabel pathLink = new LinkLabel();
         readonly Label errorLabel = new Label();
         readonly Timer keyTimer = new Timer();
-        bool userPicked;
-        bool refreshing;
         bool unhooked;
 
         public SettingsForm(IEngineHost host)
@@ -71,22 +61,8 @@ namespace KeyBank.Ui
             header.Dock = DockStyle.Fill;
             keyboardLabel.AutoSize = true;
             stateLabel.AutoSize = true;
-            Label pick = new Label();
-            pick.AutoSize = true;
-            pick.Text = "查看其他鍵盤的設定：";
-            pick.Anchor = AnchorStyles.Left;
-            profileBox.DropDownStyle = ComboBoxStyle.DropDownList;
-            profileBox.DropDownWidth = 240;
-            profileBox.SelectedIndexChanged += OnProfilePicked;
-            FlowLayoutPanel pickRow = new FlowLayoutPanel();
-            pickRow.AutoSize = true;
-            pickRow.WrapContents = false;
-            pickRow.Margin = new Padding(0, 6, 0, 6);
-            pickRow.Controls.Add(pick);
-            pickRow.Controls.Add(profileBox);
             header.Controls.Add(keyboardLabel);
             header.Controls.Add(stateLabel);
-            header.Controls.Add(pickRow);
             root.Controls.Add(header, 0, 0);
 
             TableLayoutPanel body = new TableLayoutPanel();
@@ -181,97 +157,31 @@ namespace KeyBank.Ui
                 RefreshView();
         }
 
-        void OnProfilePicked(object sender, EventArgs e)
-        {
-            if (refreshing)
-                return;
-            userPicked = true;
-            ShowProfile();
-        }
-
-        public void SelectProfile(string name)
-        {
-            for (int i = 0; i < profileBox.Items.Count; i++)
-                if (((ProfileChoice)profileBox.Items[i]).Name == name)
-                {
-                    profileBox.SelectedIndex = i;
-                    return;
-                }
-        }
-
         public void RefreshView()
         {
             Settings s = host.Settings;
-            string active = host.ActiveProfileName;
-            ProfileRuntime ap;
-            string desc = active != null && s.Profiles.TryGetValue(active, out ap) ? ap.Description : (active ?? "");
-            keyboardLabel.Text = "目前鍵盤：" + desc + (s.ActiveProfile == "auto" ? "（自動辨識）" : "（已鎖定）");
+            keyboardLabel.Text = "數字鍵模擬編輯鍵區：" + (s.NumpadSixKeys ? "開啟" : "關閉");
             stateLabel.Text = s.Enabled ? "KeyBank 已啟用" : "KeyBank 已停用";
             stateLabel.ForeColor = s.Enabled ? Color.FromArgb(0x1B, 0x7A, 0x3A) : Color.DimGray;
-
-            string viewing = profileBox.SelectedItem != null ? ((ProfileChoice)profileBox.SelectedItem).Name : null;
-            if (!userPicked || viewing == null || !s.Profiles.ContainsKey(viewing))
-            {
-                viewing = active;
-                userPicked = false;
-            }
-
-            refreshing = true;
-            try
-            {
-                profileBox.BeginUpdate();
-                profileBox.Items.Clear();
-                List<string> names = new List<string>(s.Profiles.Keys);
-                names.Sort(StringComparer.OrdinalIgnoreCase);
-                int sel = -1;
-                foreach (string n in names)
-                {
-                    ProfileChoice c = new ProfileChoice();
-                    c.Name = n;
-                    c.Text = s.Profiles[n].Description + (n == active ? "（目前使用）" : "");
-                    int idx = profileBox.Items.Add(c);
-                    if (n == viewing)
-                        sel = idx;
-                }
-                if (sel < 0 && profileBox.Items.Count > 0)
-                    sel = 0;
-                profileBox.SelectedIndex = sel;
-                int widest = 0;
-                foreach (object o in profileBox.Items)
-                    widest = Math.Max(widest, TextRenderer.MeasureText(o.ToString(), Font).Width);
-                profileBox.Width = widest + SystemInformation.VerticalScrollBarWidth + TextRenderer.MeasureText("MM", Font).Width;
-                profileBox.EndUpdate();
-            }
-            finally
-            {
-                refreshing = false;
-            }
 
             pathLink.Text = host.ConfigPath ?? "";
             string err = host.LastError;
             errorLabel.Text = err == null ? "" : "設定檔有錯誤：" + err;
             errorLabel.Visible = err != null;
             lastKeyLabel.Text = "最後按下的鍵：" + (host.LastKeyText ?? "");
-            ShowProfile();
+            ShowRules();
         }
 
-        void ShowProfile()
+        void ShowRules()
         {
-            if (profileBox.SelectedItem == null)
-                return;
             Settings s = host.Settings;
-            string name = ((ProfileChoice)profileBox.SelectedItem).Name;
-            ProfileRuntime p;
-            if (!s.Profiles.TryGetValue(name, out p))
-                return;
-
-            cluster.SetProfile(p);
+            cluster.SetRules(s.Keys);
 
             rules.BeginUpdate();
             rules.Items.Clear();
             rules.Groups.Clear();
             Dictionary<string, ListViewGroup> groups = new Dictionary<string, ListViewGroup>();
-            foreach (RuleRow r in RuleModel.BuildRows(s, p))
+            foreach (RuleRow r in RuleModel.BuildRows(s))
             {
                 ListViewGroup g;
                 string header = r.Group ?? r.Category;

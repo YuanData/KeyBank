@@ -42,7 +42,6 @@ namespace KeyBank.Win
             public int Vk;
             public bool Down;
             public Result Result;
-            public string Vendor;
             public string Note;
             public bool IsMouse;
             public MouseEvent Mouse;
@@ -90,8 +89,6 @@ namespace KeyBank.Win
 
         // Written by the hook thread, read from any thread.
         volatile Pipeline pipeline;
-        volatile DeviceTracker tracker;
-        volatile string activeProfile = "";
         volatile int lastVk = -1;
         volatile Exception startError;
         volatile bool prewarmed;
@@ -172,11 +169,6 @@ namespace KeyBank.Win
             get { return store.LastError; }
         }
 
-        public string ActiveProfileName
-        {
-            get { return activeProfile; }
-        }
-
         public string LastKeyText
         {
             get
@@ -184,13 +176,13 @@ namespace KeyBank.Win
                 int vk = lastVk;
                 if (vk < 0)
                     return "";
-                DeviceTracker t = tracker;
-                string vendor = t == null ? null : t.CurrentVendor;
-                string from = vendor == null
-                    ? "內建/未知鍵盤"
-                    : vendor + " " + ProfileDescription();
-                return KeyNames.NameOf(vk) + " 來自 " + from;
+                return KeyNames.NameOf(vk);
             }
+        }
+
+        internal Settings AppliedSettings
+        {
+            get { return cur; }
         }
 
         internal bool MouseHookInstalled
@@ -236,18 +228,6 @@ namespace KeyBank.Win
         public void Mutate(Action<ConfigFile> change)
         {
             store.Mutate(change);
-        }
-
-        public static string DescribeKeyboards()
-        {
-            return DeviceTracker.Describe();
-        }
-
-        string ProfileDescription()
-        {
-            ProfileRuntime p;
-            string name = activeProfile;
-            return store.Settings.Profiles.TryGetValue(name, out p) ? p.Description : name;
         }
 
         static long NowMs()
@@ -358,14 +338,10 @@ namespace KeyBank.Win
                 hookThreadId = (int)Native.GetCurrentThreadId();
 
                 foreground = new ForegroundApp();
-                DeviceTracker t = new DeviceTracker();
-                t.VendorChanged += OnVendorChanged;
-                tracker = t;
 
                 appliedStamp = Volatile.Read(ref settingsStamp);
                 cur = store.Settings;
                 pipeline = NewPipeline();
-                activeProfile = pipeline.ProfileName;
                 recorder = new WheelBurstRecorder(cur.Diagnostics.BurstGapMs);
 
                 Prewarm();
@@ -465,15 +441,6 @@ namespace KeyBank.Win
             }
             keyboard.Uninstall();
             mouse.Uninstall();
-            try
-            {
-                DeviceTracker t = tracker;
-                if (t != null)
-                    t.Dispose();
-            }
-            catch (Exception)
-            {
-            }
             DiscardMouseOut();
             try
             {
@@ -499,7 +466,7 @@ namespace KeyBank.Win
 
         Pipeline NewPipeline()
         {
-            return new Pipeline(cur, cur.ResolveProfile(tracker.CurrentVendor), foreground.CurrentExeName);
+            return new Pipeline(cur, foreground.CurrentExeName);
         }
 
         // A hook callback that runs past Windows' limit can get the hook dropped, and the first call of every
@@ -513,9 +480,7 @@ namespace KeyBank.Win
                 mouse.WarmUp();
 
                 Settings s = cur;
-                string name = s.ResolveProfile(null);
-                s.Profile(name);
-                Pipeline p = new Pipeline(s, name, foreground.CurrentExeName);
+                Pipeline p = new Pipeline(s, foreground.CurrentExeName);
                 List<Out> built = new List<Out>();
                 long t = 0;
                 int[] vks = { 'A', Vk.LAlt, 'A', Vk.PageDown, Vk.Home };
@@ -534,16 +499,13 @@ namespace KeyBank.Win
                 built.AddRange(p.ProcessMouse(MouseEvent.Click(MouseButton.Left, false), t += 10).Emit);
                 built.AddRange(p.ProcessMouse(MouseEvent.Wheel(-120), t += 10).Emit);
                 Settings ws = WheelFilterWarmSettings();
-                string wname = ws.ResolveProfile(null);
-                ws.Profile(wname);
-                Pipeline filtered = new Pipeline(ws, wname, foreground.CurrentExeName);
+                Pipeline filtered = new Pipeline(ws, foreground.CurrentExeName);
                 filtered.ProcessMouse(MouseEvent.Wheel(120), t += 10);
                 built.AddRange(filtered.ProcessMouse(MouseEvent.Wheel(-30), t += 10).Emit);
                 built.AddRange(filtered.ProcessMouse(MouseEvent.Wheel(120), t += 10).Emit);
                 for (int i = 0; i < 8; i++)
                     built.AddRange(filtered.ProcessMouse(MouseEvent.Wheel(120), t += 20).Emit);
                 built.AddRange(p.Tick(t + 1000));
-                built.AddRange(p.SetProfile(name));
                 built.AddRange(p.ReleaseAll());
 
                 built.Add(Out.Key(Vk.PageDown, true));
@@ -575,7 +537,7 @@ namespace KeyBank.Win
         Settings WheelFilterWarmSettings()
         {
             return Settings.Compile(ConfigFile.Parse(
-                "{\"defaultProfile\":\"w\",\"wheelFilter\":{\"enabled\":true},\"wheelAccel\":{\"enabled\":true},\"profiles\":{\"w\":{\"description\":\"w\"}}}"));
+                "{\"wheelFilter\":{\"enabled\":true},\"wheelAccel\":{\"enabled\":true}}"));
         }
 
         void ApplyMouseHook()
@@ -608,7 +570,6 @@ namespace KeyBank.Win
                 QueueLine(recorder.Flush());
                 cur = next;
                 pipeline = NewPipeline();
-                activeProfile = pipeline.ProfileName;
                 recorder = new WheelBurstRecorder(cur.Diagnostics.BurstGapMs);
                 markHeld = false;
                 ApplyMouseHook();
@@ -696,7 +657,6 @@ namespace KeyBank.Win
                 t.Vk = vk;
                 t.Down = down;
                 t.Result = r;
-                t.Vendor = tracker.CurrentVendor;
                 traceQueue.Enqueue(t);
             }
 
@@ -801,7 +761,6 @@ namespace KeyBank.Win
                 t.IsMouse = true;
                 t.Mouse = e;
                 t.Result = r;
-                t.Vendor = tracker.CurrentVendor;
                 traceQueue.Enqueue(t);
             }
             if (!r.Handled)
@@ -876,12 +835,11 @@ namespace KeyBank.Win
                         sb.Append(" gap=").Append(lastWheelAt < 0 ? "-" : (t.At - lastWheelAt).ToString()).Append("ms");
                         lastWheelAt = t.At;
                     }
-                    sb.Append(" dev=").Append(t.Vendor ?? "none").AppendLine();
+                    sb.AppendLine();
                 }
                 else
                     sb.Append(t.Down ? "+" : "-").Append(KeyNames.NameOf(t.Vk))
-                      .Append(" => ").Append(t.Result.ToString())
-                      .Append(" dev=").Append(t.Vendor ?? "none").AppendLine();
+                      .Append(" => ").Append(t.Result.ToString()).AppendLine();
             }
             try
             {
@@ -891,14 +849,6 @@ namespace KeyBank.Win
             {
                 // Tracing is best effort; dropping a batch is better than disturbing typing.
             }
-        }
-
-        void OnVendorChanged(object sender, EventArgs e)
-        {
-            string name = cur.ResolveProfile(tracker.CurrentVendor);
-            Send(pipeline.SetProfile(name));
-            activeProfile = pipeline.ProfileName;
-            RaiseChanged();
         }
 
         // ---- any thread ----

@@ -10,8 +10,6 @@ class FakeHost : IEngineHost
     public string LastKeyText { get; set; }
     public event EventHandler Changed;
 
-    public string ActiveProfileName { get { return Settings.ResolveProfile(null); } }
-
     public FakeHost()
     {
         Settings = Settings.Load(DefaultConfig.Json.Replace("\"altMouse\": false", "\"altMouse\": true"));

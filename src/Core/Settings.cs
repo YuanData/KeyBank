@@ -70,6 +70,7 @@ namespace KeyBank.Core
         public string MarkKey = "F9";
     }
 
+    // Read only, so a file written before numpadSixKeys existed can be migrated.
     public class DeviceRule
     {
         public string VendorId = "";
@@ -90,6 +91,7 @@ namespace KeyBank.Core
         public string Hold = "";
     }
 
+    // Read only, see DeviceRule.
     public class ProfileConfig
     {
         public string Description = "";
@@ -101,8 +103,13 @@ namespace KeyBank.Core
     public class ConfigFile
     {
         public bool Enabled = true;
-        public string ActiveProfile = "auto";
-        public string DefaultProfile = "full";
+        // The numpad keys stand in for the editing cluster: Insert, Delete, Home, End, Page Up, Page Down.
+        public bool NumpadSixKeys = false;
+        public List<string> AltChords;
+        public List<RemapRule> NumpadRemap;
+        public List<TapHoldRule> TapHold;
+        public string ActiveProfile;
+        public string DefaultProfile;
         public HalfPageConfig HalfPage;
         public ScrollConfig Scroll;
         public bool AltMouse = false;
@@ -111,14 +118,90 @@ namespace KeyBank.Core
         public DiagnosticsConfig Diagnostics = new DiagnosticsConfig();
         public List<string> ExcludeApps = new List<string>();
         public Dictionary<string, List<string>> AppAltChords;
-        public List<DeviceRule> Devices = new List<DeviceRule>();
-        public Dictionary<string, ProfileConfig> Profiles = new Dictionary<string, ProfileConfig>();
+        public List<DeviceRule> Devices;
+        public Dictionary<string, ProfileConfig> Profiles;
 
-        // A file written before the scroll and appAltChords sections existed is read with defaults,
+        bool migrated;
+
+        // A file written before the scroll, appAltChords or numpadSixKeys layout existed is read with defaults,
         // and ToJson then writes the new layout.
         public bool NeedsUpgrade
         {
-            get { return Scroll == null || AppAltChords == null; }
+            get { return Scroll == null || AppAltChords == null || AltChords == null || migrated; }
+        }
+
+        // Turns the old per-keyboard profiles into the single rule set. The profile that remapped keys becomes
+        // the numpad rules, and the old "locked to that profile" choice becomes numpadSixKeys. Auto detection
+        // had no single answer, so it migrates to off.
+        public void MigrateLegacy()
+        {
+            if (Profiles == null || Profiles.Count == 0)
+                return;
+            migrated = true;
+
+            ProfileConfig plain = null, numpad = null;
+            string numpadName = null;
+            foreach (KeyValuePair<string, ProfileConfig> p in Profiles)
+            {
+                if (numpad == null && p.Value.Remap != null && p.Value.Remap.Count > 0)
+                {
+                    numpad = p.Value;
+                    numpadName = p.Key;
+                }
+            }
+            if (DefaultProfile != null && Profiles.ContainsKey(DefaultProfile))
+                plain = Profiles[DefaultProfile];
+            if (plain == null)
+                foreach (ProfileConfig p in Profiles.Values)
+                {
+                    plain = p;
+                    break;
+                }
+
+            if (AltChords == null)
+                AltChords = plain.AltChords ?? new List<string>();
+            if (NumpadRemap == null)
+                NumpadRemap = numpad != null ? numpad.Remap : new List<RemapRule>();
+            if (TapHold == null)
+            {
+                TapHold = new List<TapHoldRule>();
+                foreach (ProfileConfig p in new ProfileConfig[] { plain, numpad })
+                {
+                    if (p == null || p.TapHold == null)
+                        continue;
+                    foreach (TapHoldRule t in p.TapHold)
+                    {
+                        bool seen = false;
+                        foreach (TapHoldRule have in TapHold)
+                            if (have.Key == t.Key)
+                                seen = true;
+                        if (!seen)
+                            TapHold.Add(t);
+                    }
+                }
+            }
+            if (numpadName != null && ActiveProfile == numpadName)
+                NumpadSixKeys = true;
+
+            Profiles = null;
+            Devices = null;
+            ActiveProfile = null;
+            DefaultProfile = null;
+        }
+
+        public List<string> EffectiveAltChords()
+        {
+            return AltChords ?? DefaultConfig.AltChordKeys();
+        }
+
+        public List<RemapRule> EffectiveNumpadRemap()
+        {
+            return NumpadRemap ?? DefaultConfig.NumpadRemapRules();
+        }
+
+        public List<TapHoldRule> EffectiveTapHold()
+        {
+            return TapHold ?? DefaultConfig.TapHoldRules();
         }
 
         public ScrollConfig EffectiveScroll()
@@ -158,31 +241,6 @@ namespace KeyBank.Core
 
         public string ToJson()
         {
-            Dictionary<string, object> profiles = new Dictionary<string, object>();
-            foreach (KeyValuePair<string, ProfileConfig> p in Profiles)
-            {
-                Dictionary<string, object> profile = new Dictionary<string, object>();
-                profile["description"] = p.Value.Description;
-                profile["altChords"] = p.Value.AltChords;
-                profile["remap"] = p.Value.Remap.ConvertAll<object>(delegate(RemapRule r)
-                {
-                    Dictionary<string, object> d = new Dictionary<string, object>();
-                    d["from"] = r.From;
-                    d["to"] = r.To;
-                    return d;
-                });
-                profile["tapHold"] = p.Value.TapHold.ConvertAll<object>(delegate(TapHoldRule t)
-                {
-                    Dictionary<string, object> d = new Dictionary<string, object>();
-                    d["key"] = t.Key;
-                    d["holdMs"] = t.HoldMs;
-                    d["tap"] = t.Tap;
-                    d["hold"] = t.Hold;
-                    return d;
-                });
-                profiles[p.Key] = profile;
-            }
-
             ScrollConfig sc = EffectiveScroll();
             Dictionary<string, object> apps = new Dictionary<string, object>();
             foreach (KeyValuePair<string, ScrollAppConfig> a in sc.Apps)
@@ -203,8 +261,24 @@ namespace KeyBank.Core
 
             Dictionary<string, object> root = new Dictionary<string, object>();
             root["enabled"] = Enabled;
-            root["activeProfile"] = ActiveProfile;
-            root["defaultProfile"] = DefaultProfile;
+            root["numpadSixKeys"] = NumpadSixKeys;
+            root["altChords"] = EffectiveAltChords();
+            root["numpadRemap"] = EffectiveNumpadRemap().ConvertAll<object>(delegate(RemapRule r)
+            {
+                Dictionary<string, object> d = new Dictionary<string, object>();
+                d["from"] = r.From;
+                d["to"] = r.To;
+                return d;
+            });
+            root["tapHold"] = EffectiveTapHold().ConvertAll<object>(delegate(TapHoldRule t)
+            {
+                Dictionary<string, object> d = new Dictionary<string, object>();
+                d["key"] = t.Key;
+                d["holdMs"] = t.HoldMs;
+                d["tap"] = t.Tap;
+                d["hold"] = t.Hold;
+                return d;
+            });
             root["scroll"] = scroll;
             root["altMouse"] = AltMouse;
             WheelFilterConfig wf = WheelFilter ?? new WheelFilterConfig();
@@ -239,14 +313,6 @@ namespace KeyBank.Core
             root["diagnostics"] = diag;
             root["excludeApps"] = ExcludeApps;
             root["appAltChords"] = EffectiveAppAltChords();
-            root["devices"] = Devices.ConvertAll<object>(delegate(DeviceRule d)
-            {
-                Dictionary<string, object> m = new Dictionary<string, object>();
-                m["vendorId"] = d.VendorId;
-                m["profile"] = d.Profile;
-                return m;
-            });
-            root["profiles"] = profiles;
             return JsonText.Pretty(new JavaScriptSerializer().Serialize(root));
         }
     }
@@ -318,10 +384,8 @@ namespace KeyBank.Core
         public int Hold;
     }
 
-    public sealed class ProfileRuntime
+    public sealed class KeyRules
     {
-        public string Name;
-        public string Description;
         public HashSet<int> AltChords = new HashSet<int>();
         public Dictionary<int, int> Remap = new Dictionary<int, int>();
         public Dictionary<int, TapHoldRuntime> TapHold = new Dictionary<int, TapHoldRuntime>();
@@ -398,8 +462,8 @@ namespace KeyBank.Core
         public DiagnosticsRuntime Diagnostics;
         public HashSet<string> ExcludeApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, HashSet<int>> AppChords = new Dictionary<string, HashSet<int>>();
-        public List<DeviceRule> Devices;
-        public Dictionary<string, ProfileRuntime> Profiles = new Dictionary<string, ProfileRuntime>();
+        public bool NumpadSixKeys;
+        public KeyRules Keys;
 
         public static Settings Load(string json)
         {
@@ -418,16 +482,15 @@ namespace KeyBank.Core
                 throw new ConfigException("設定檔是空的。");
 
             Settings s = new Settings();
+            f.MigrateLegacy();
             s.File = f;
             s.Enabled = f.Enabled;
             s.Upgraded = f.NeedsUpgrade;
-            s.ActiveProfile = f.ActiveProfile ?? "auto";
-            s.DefaultProfile = f.DefaultProfile ?? "";
+            s.NumpadSixKeys = f.NumpadSixKeys;
             s.AltMouse = f.AltMouse;
             s.WheelFilter = CompileWheelFilter(f.WheelFilter ?? new WheelFilterConfig());
             s.WheelAccel = CompileWheelAccel(f.WheelAccel ?? new WheelAccelConfig());
             s.Diagnostics = CompileDiagnostics(f.Diagnostics ?? new DiagnosticsConfig());
-            s.Devices = f.Devices ?? new List<DeviceRule>();
             s.Scroll = CompileScroll(f.EffectiveScroll());
 
             if (f.ExcludeApps != null)
@@ -442,42 +505,14 @@ namespace KeyBank.Core
                 s.AppChords[AppKey(a.Key)] = keys;
             }
 
-            if (f.Profiles == null || f.Profiles.Count == 0)
-                throw new ConfigException("profiles 至少要有一組設定。");
-            foreach (KeyValuePair<string, ProfileConfig> p in f.Profiles)
-                s.Profiles[p.Key] = CompileProfile(p.Key, p.Value);
-
-            if (!s.Profiles.ContainsKey(s.DefaultProfile))
-                throw new ConfigException("defaultProfile '" + s.DefaultProfile + "' 不在 profiles 裡。");
-            if (s.ActiveProfile != "auto" && !s.Profiles.ContainsKey(s.ActiveProfile))
-                throw new ConfigException("activeProfile '" + s.ActiveProfile + "' 不在 profiles 裡。");
-            for (int i = 0; i < s.Devices.Count; i++)
-                if (!s.Profiles.ContainsKey(s.Devices[i].Profile))
-                    throw new ConfigException("devices[" + i + "].profile '" + s.Devices[i].Profile + "' 不在 profiles 裡。");
-
+            s.Keys = CompileKeys(f);
             return s;
-        }
-
-        public ProfileRuntime Profile(string name)
-        {
-            return Profiles[name];
         }
 
         public HashSet<int> AppChordsFor(string app)
         {
             HashSet<int> keys;
             return app != null && AppChords.TryGetValue(AppKey(app), out keys) ? keys : null;
-        }
-
-        public string ResolveProfile(string vendorId)
-        {
-            if (ActiveProfile != "auto")
-                return ActiveProfile;
-            if (vendorId != null)
-                foreach (DeviceRule d in Devices)
-                    if (string.Equals(d.VendorId, vendorId, StringComparison.OrdinalIgnoreCase))
-                        return d.Profile;
-            return DefaultProfile;
         }
 
         static void CheckTicks(double value, string path)
@@ -608,42 +643,43 @@ namespace KeyBank.Core
             return vk;
         }
 
-        static ProfileRuntime CompileProfile(string name, ProfileConfig c)
+        // The numpad rules are always validated, but only take effect while numpadSixKeys is on.
+        static KeyRules CompileKeys(ConfigFile f)
         {
-            string at = "profiles." + name;
-            ProfileRuntime p = new ProfileRuntime();
-            p.Name = name;
-            p.Description = c.Description ?? name;
+            KeyRules p = new KeyRules();
 
-            if (c.AltChords != null)
-                for (int i = 0; i < c.AltChords.Count; i++)
-                    p.AltChords.Add(ParseKey(c.AltChords[i], at + ".altChords[" + i + "]"));
+            List<string> chords = f.EffectiveAltChords();
+            for (int i = 0; i < chords.Count; i++)
+                p.AltChords.Add(ParseKey(chords[i], "altChords[" + i + "]"));
 
-            if (c.Remap != null)
-                for (int i = 0; i < c.Remap.Count; i++)
-                {
-                    string r = at + ".remap[" + i + "]";
-                    int from = ParseKey(c.Remap[i].From, r + ".from");
-                    int to = ParseKey(c.Remap[i].To, r + ".to");
-                    if (p.Remap.ContainsKey(from))
-                        throw new ConfigException(r + ".from：" + c.Remap[i].From + " 重複對應。");
+            List<RemapRule> remap = f.EffectiveNumpadRemap();
+            Dictionary<int, int> seen = new Dictionary<int, int>();
+            for (int i = 0; i < remap.Count; i++)
+            {
+                string r = "numpadRemap[" + i + "]";
+                int from = ParseKey(remap[i].From, r + ".from");
+                int to = ParseKey(remap[i].To, r + ".to");
+                if (seen.ContainsKey(from))
+                    throw new ConfigException(r + ".from：" + remap[i].From + " 重複對應。");
+                seen[from] = to;
+                if (f.NumpadSixKeys)
                     p.Remap[from] = to;
-                }
+            }
 
-            if (c.TapHold != null)
-                for (int i = 0; i < c.TapHold.Count; i++)
-                {
-                    string r = at + ".tapHold[" + i + "]";
-                    TapHoldRule t = c.TapHold[i];
-                    if (t.HoldMs < 100 || t.HoldMs > 5000)
-                        throw new ConfigException(r + ".holdMs 必須介於 100 到 5000。");
-                    TapHoldRuntime rt = new TapHoldRuntime();
-                    rt.Key = ParseKey(t.Key, r + ".key");
-                    rt.Tap = ParseKey(t.Tap, r + ".tap");
-                    rt.Hold = ParseKey(t.Hold, r + ".hold");
-                    rt.HoldMs = t.HoldMs;
-                    p.TapHold[rt.Key] = rt;
-                }
+            List<TapHoldRule> taps = f.EffectiveTapHold();
+            for (int i = 0; i < taps.Count; i++)
+            {
+                string r = "tapHold[" + i + "]";
+                TapHoldRule t = taps[i];
+                if (t.HoldMs < 100 || t.HoldMs > 5000)
+                    throw new ConfigException(r + ".holdMs 必須介於 100 到 5000。");
+                TapHoldRuntime rt = new TapHoldRuntime();
+                rt.Key = ParseKey(t.Key, r + ".key");
+                rt.Tap = ParseKey(t.Tap, r + ".tap");
+                rt.Hold = ParseKey(t.Hold, r + ".hold");
+                rt.HoldMs = t.HoldMs;
+                p.TapHold[rt.Key] = rt;
+            }
 
             return p;
         }
@@ -662,10 +698,43 @@ namespace KeyBank.Core
             return d;
         }
 
+        public static List<string> AltChordKeys()
+        {
+            return new List<string>(new string[] { "C", "X", "V", "A", "Z", "S", "F" });
+        }
+
+        public static List<RemapRule> NumpadRemapRules()
+        {
+            return new List<RemapRule>(new RemapRule[]
+            {
+                new RemapRule { From = "PageUp", To = "Home" },
+                new RemapRule { From = "PageDown", To = "PageUp" },
+                new RemapRule { From = "Multiply", To = "End" },
+                new RemapRule { From = "Subtract", To = "PageDown" }
+            });
+        }
+
+        public static List<TapHoldRule> TapHoldRules()
+        {
+            return new List<TapHoldRule>(new TapHoldRule[]
+            {
+                new TapHoldRule { Key = "Home", HoldMs = 500, Tap = "Home", Hold = "PrintScreen" }
+            });
+        }
+
         public const string Json = @"{
   ""enabled"": true,
-  ""activeProfile"": ""auto"",
-  ""defaultProfile"": ""full"",
+  ""numpadSixKeys"": false,
+  ""altChords"": [""C"", ""X"", ""V"", ""A"", ""Z"", ""S"", ""F""],
+  ""numpadRemap"": [
+    { ""from"": ""PageUp"", ""to"": ""Home"" },
+    { ""from"": ""PageDown"", ""to"": ""PageUp"" },
+    { ""from"": ""Multiply"", ""to"": ""End"" },
+    { ""from"": ""Subtract"", ""to"": ""PageDown"" }
+  ],
+  ""tapHold"": [
+    { ""key"": ""Home"", ""holdMs"": 500, ""tap"": ""Home"", ""hold"": ""PrintScreen"" }
+  ],
   ""scroll"": {
     ""enabled"": true,
     ""stepTicks"": 4,
@@ -682,31 +751,6 @@ namespace KeyBank.Core
   ""excludeApps"": [],
   ""appAltChords"": {
     ""chrome.exe"": [""W"", ""T"", ""N"", ""R"", ""L"", ""D"", ""1"", ""2"", ""3"", ""4"", ""5"", ""6"", ""7"", ""8"", ""9"", ""0"", ""Equals"", ""Minus""]
-  },
-  ""devices"": [
-    { ""vendorId"": ""3434"", ""profile"": ""full"" },
-    { ""vendorId"": ""046D"", ""profile"": ""mini"" }
-  ],
-  ""profiles"": {
-    ""full"": {
-      ""description"": ""完整鍵盤"",
-      ""altChords"": [""C"", ""X"", ""V"", ""A"", ""Z"", ""S"", ""F""],
-      ""remap"": [],
-      ""tapHold"": []
-    },
-    ""mini"": {
-      ""description"": ""迷你鍵盤"",
-      ""altChords"": [""C"", ""X"", ""V"", ""A"", ""Z"", ""S"", ""F""],
-      ""remap"": [
-        { ""from"": ""PageUp"", ""to"": ""Home"" },
-        { ""from"": ""PageDown"", ""to"": ""PageUp"" },
-        { ""from"": ""Multiply"", ""to"": ""End"" },
-        { ""from"": ""Subtract"", ""to"": ""PageDown"" }
-      ],
-      ""tapHold"": [
-        { ""key"": ""Home"", ""holdMs"": 500, ""tap"": ""Home"", ""hold"": ""PrintScreen"" }
-      ]
-    }
   }
 }";
     }

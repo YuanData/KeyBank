@@ -95,11 +95,14 @@ static class CoreTests
         return NewWith(Cfg.Replace("\"altMouse\": false", "\"altMouse\": true"), profile);
     }
 
+    // "mini" means the numpad stands in for the editing cluster, "full" means it does not.
     static Pipeline NewWith(string json, string profile)
     {
         clock = 0;
         currentApp = null;
-        return new Pipeline(Settings.Load(json), profile, delegate { return currentApp; });
+        if (profile == "mini")
+            json = json.Replace("\"numpadSixKeys\": false", "\"numpadSixKeys\": true");
+        return new Pipeline(Settings.Load(json), delegate { return currentApp; });
     }
 
     static string Burst(WheelBurstRecorder r, long arrival, long hardware, int delta, bool dropped)
@@ -391,10 +394,26 @@ static class CoreTests
     static void Main()
     {
         Settings s = Settings.Load(Cfg);
-        Expect("device 3434 -> full", "full", s.ResolveProfile("3434"));
-        Expect("device 046d (case-insensitive) -> mini", "mini", s.ResolveProfile("046d"));
-        Expect("unknown device -> default", "full", s.ResolveProfile("FFFF"));
-        Expect("no device -> default", "full", s.ResolveProfile(null));
+        Expect("numpad six keys: off by default", "False/0", s.NumpadSixKeys + "/" + s.Keys.Remap.Count);
+        Settings numpadOn = Settings.Load(Cfg.Replace("\"numpadSixKeys\": false", "\"numpadSixKeys\": true"));
+        Expect("numpad six keys: on applies the four remaps", "True/4", numpadOn.NumpadSixKeys + "/" + numpadOn.Keys.Remap.Count);
+        Expect("numpad six keys: tap-hold is on either way", "1/1", s.Keys.TapHold.Count + "/" + numpadOn.Keys.TapHold.Count);
+        Expect("numpad six keys: written back by ToJson", "True", numpadOn.File.ToJson().Contains("\"numpadSixKeys\": true").ToString());
+        string oldFormat = "{ \"activeProfile\": \"mini\", \"defaultProfile\": \"full\", "
+            + "\"devices\": [ { \"vendorId\": \"046D\", \"profile\": \"mini\" } ], \"profiles\": { "
+            + "\"full\": { \"description\": \"f\", \"altChords\": [\"C\", \"X\"], \"remap\": [], \"tapHold\": [] }, "
+            + "\"mini\": { \"description\": \"m\", \"altChords\": [\"C\"], \"remap\": [ { \"from\": \"Multiply\", \"to\": \"End\" } ], "
+            + "\"tapHold\": [ { \"key\": \"Home\", \"holdMs\": 500, \"tap\": \"Home\", \"hold\": \"PrintScreen\" } ] } } }";
+        Settings migrated = Settings.Load(oldFormat);
+        Expect("migrate: locked mini profile turns numpad six keys on", "True/1/1", migrated.NumpadSixKeys + "/" + migrated.Keys.Remap.Count + "/" + migrated.Keys.TapHold.Count);
+        Expect("migrate: alt chords come from the default profile", "2", migrated.Keys.AltChords.Count.ToString());
+        Expect("migrate: flagged as an upgrade", "True", migrated.Upgraded.ToString());
+        string migratedJson = migrated.File.ToJson();
+        Expect("migrate: written file drops profiles and devices", "False", (migratedJson.Contains("\"profiles\"") || migratedJson.Contains("\"devices\"") || migratedJson.Contains("activeProfile")).ToString());
+        Expect("migrate: written file is stable", "False/True", Settings.Load(migratedJson).Upgraded + "/" + Settings.Load(migratedJson).NumpadSixKeys);
+        Settings migratedAuto = Settings.Load(oldFormat.Replace("\"activeProfile\": \"mini\"", "\"activeProfile\": \"auto\""));
+        Expect("migrate: auto detection turns numpad six keys off but keeps the rules", "False/0/True",
+            migratedAuto.NumpadSixKeys + "/" + migratedAuto.Keys.Remap.Count + "/" + migratedAuto.File.ToJson().Contains("Multiply"));
         Expect("default step ticks", "4", s.Scroll.StepTicks.ToString());
         Expect("default page ticks", "8", s.Scroll.PageTicks.ToString());
         Expect("default is not an upgrade", "False", s.Upgraded.ToString());
@@ -568,8 +587,8 @@ static class CoreTests
         Expect("ctrl+PgDn untouched", "pass", Send(p, "+PageDown"));
         Send(p, "-PageDown");
         Send(p, "-LeftCtrl");
-        Expect("full: Home passes", "pass", Send(p, "+Home"));
-        Send(p, "-Home");
+        Expect("full: Home waits for the tap-hold decision", "swallow", Send(p, "+Home"));
+        Expect("full: Home tap still emits Home", "+Home -Home", Send(p, "-Home"));
 
         string appScroll = Cfg.Replace("\"apps\": {}", "\"apps\": { \"Notepad++.exe\": { \"stepTicks\": 6, \"pageTicks\": 12 } }");
         p = NewWith(appScroll, "full");
@@ -635,14 +654,19 @@ static class CoreTests
         Expect("tap-hold: shift+Home passes", "pass", Send(p, "+Home"));
         Expect("tap-hold: shift+Home release passes", "pass", Send(p, "-Home"));
 
+        p = New("full");
+        Send(p, "+Home");
+        clock = 500;
+        Expect("tap-hold: works with numpad six keys off", "+PrintScreen -PrintScreen", Tick(p));
+
         p = New("mini");
         Send(p, "+LeftAlt");
         Send(p, "+C");
-        Expect("setProfile releases injected ctrl", "-C -LeftCtrl", Join(p.SetProfile("full")));
+        Expect("releaseAll releases injected ctrl", "-C -LeftCtrl", Join(p.ReleaseAll()));
 
         string legacy = Cfg
             .Replace("\"scroll\": {\n    \"enabled\": true,\n    \"stepTicks\": 4,\n    \"pageTicks\": 8,\n    \"burstTaps\": 3,\n    \"burstIntervalMs\": 400,\n    \"holdRepeatsPerSec\": 8,\n    \"apps\": {}\n  },", "\"halfPage\": { \"enabled\": true, \"fraction\": \"1/3\", \"pageTicks\": 9 },");
-        legacy = legacy.Substring(0, legacy.IndexOf("\"appAltChords\"")) + legacy.Substring(legacy.IndexOf("\"devices\""));
+        legacy = legacy.Substring(0, legacy.IndexOf("\"appAltChords\"")) + "\"unused\": 0\n}";
         Settings old = Settings.Load(legacy);
         Expect("legacy halfPage: flagged as upgrade", "True", old.Upgraded.ToString());
         Expect("legacy halfPage: step from fraction", "3", old.Scroll.StepTicks.ToString());
@@ -658,7 +682,6 @@ static class CoreTests
 
         ExpectThrows("bad key name", "不認得按鍵名稱 'Foo'", Cfg.Replace("\"to\": \"Home\"", "\"to\": \"Foo\""));
         ExpectThrows("bad chrome chord", "appAltChords.chrome.exe[0]", Cfg.Replace("\"chrome.exe\": [\"W\"", "\"chrome.exe\": [\"Nope\""));
-        ExpectThrows("unknown default profile", "defaultProfile", Cfg.Replace("\"defaultProfile\": \"full\"", "\"defaultProfile\": \"nope\""));
         ExpectThrows("hold too short", "holdMs", Cfg.Replace("\"holdMs\": 500", "\"holdMs\": 10"));
         ExpectThrows("step ticks zero", "scroll.stepTicks", Cfg.Replace("\"stepTicks\": 4", "\"stepTicks\": 0"));
         ExpectThrows("burst taps too small", "scroll.burstTaps", Cfg.Replace("\"burstTaps\": 3", "\"burstTaps\": 1"));

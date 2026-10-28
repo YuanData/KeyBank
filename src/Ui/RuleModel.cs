@@ -31,7 +31,7 @@ namespace KeyBank.Ui
         public const string CatAlt = "Alt 手勢";
         public const string CatRemap = "位置對調";
         public const string CatHold = "長按";
-        public const string CatScroll = "分段捲動";
+        public const string CatScroll = "PgDn半屏";
         public const string CatAltMouse = "Alt 加滑鼠";
         public const string CatWheel = "滾輪";
         public const string CatExclude = "排除的程式";
@@ -82,10 +82,10 @@ namespace KeyBank.Ui
         public static string ScrollSummary(Settings s)
         {
             ScrollRuntime sc = s.Scroll;
-            return sc.Enabled ? "單次 " + TickText(sc.StepTicks) + " 格 / 整頁 " + TickText(sc.PageTicks) + " 格" : "分段捲動 關閉";
+            return sc.Enabled ? "單次 " + TickText(sc.StepTicks) + " 格 / 整頁 " + TickText(sc.PageTicks) + " 格" : "PgDn半屏 關閉";
         }
 
-        public static ClusterCell[][] BuildCluster(ProfileRuntime p)
+        public static ClusterCell[][] BuildCluster(KeyRules p)
         {
             int[] top = { Vk.Home, Vk.End, Vk.PageUp, Vk.PageDown };
             int[] bottom = { -1, Vk.Divide, Vk.Multiply, Vk.Subtract };
@@ -109,7 +109,7 @@ namespace KeyBank.Ui
             return c;
         }
 
-        static ClusterCell Cell(ProfileRuntime p, int vk, bool isFixed)
+        static ClusterCell Cell(KeyRules p, int vk, bool isFixed)
         {
             ClusterCell c = new ClusterCell();
             c.Physical = vk;
@@ -127,21 +127,17 @@ namespace KeyBank.Ui
             return c;
         }
 
-        public static List<RuleRow> BuildRows(Settings s, ProfileRuntime p)
+        public static List<RuleRow> BuildRows(Settings s)
         {
+            KeyRules p = s.Keys;
             List<RuleRow> rows = new List<RuleRow>();
 
-            List<int> chords = new List<int>(p.AltChords);
-            ProfileConfig raw;
-            if (s.File != null && s.File.Profiles != null && s.File.Profiles.TryGetValue(p.Name, out raw) && raw.AltChords != null)
+            List<int> chords = new List<int>();
+            foreach (string name in s.File.EffectiveAltChords())
             {
-                chords.Clear();
-                foreach (string name in raw.AltChords)
-                {
-                    int vk;
-                    if (KeyNames.TryParse(name, out vk))
-                        chords.Add(vk);
-                }
+                int vk;
+                if (KeyNames.TryParse(name, out vk))
+                    chords.Add(vk);
             }
             for (int i = 0; i < chords.Count; i++)
             {
@@ -165,6 +161,8 @@ namespace KeyBank.Ui
                 }
             }
 
+            if (!s.NumpadSixKeys)
+                rows.Add(Row(CatRemap, "數字鍵模擬編輯鍵區", "已關閉", "小鍵盤維持原本的數字鍵盤"));
             ClusterCell[][] cl = BuildCluster(p);
             foreach (ClusterCell[] line in cl)
                 foreach (ClusterCell c in line)

@@ -92,11 +92,11 @@ static class UiPreview
             Check(TrayContext.CanOpenMenuOnLeftClick, "left click can open the menu (NotifyIcon.ShowContextMenu found)");
             Check(!tray.AutoStartItem.Checked, "menu: 開機自動啟動 starts off");
             Check(tray.ErrorItem == null, "menu: no error item without LastError");
-            Check(tray.ScrollItem.Text == "分段捲動" && tray.ScrollItem.Checked, "menu: 分段捲動 checked");
+            Check(tray.ScrollItem.Text == "PgDn半屏" && tray.ScrollItem.Checked, "menu: PgDn半屏 checked");
             Check(tray.AltMouseItem.Text == "Alt 加滑鼠變 Ctrl" && tray.AltMouseItem.Checked, "menu: Alt 加滑鼠變 Ctrl checked");
             Check(tray.TuneItem.Text == "捲動微調…", "menu: 捲動微調… present");
-            Check(tray.AutoProfileItem.Checked, "menu: 自動辨識 checked");
-            Check(tray.TooltipText() == "KeyBank：啟用｜完整鍵盤｜單次 4 格 / 整頁 8 格", "tooltip: " + tray.TooltipText());
+            Check(tray.NumpadSixKeysItem.Text == "數字鍵模擬編輯鍵區" && !tray.NumpadSixKeysItem.Checked, "menu: 數字鍵模擬編輯鍵區 starts unchecked");
+            Check(tray.TooltipText() == "KeyBank：啟用｜數字鍵模擬關｜單次 4 格 / 整頁 8 格", "tooltip: " + tray.TooltipText());
 
             tray.EnabledItem.PerformClick();
             Check(!host.Settings.Enabled, "click 停用 -> Settings.Enabled false");
@@ -110,13 +110,13 @@ static class UiPreview
 
             Application.DoEvents();
             tray.ScrollItem.PerformClick();
-            Check(!host.Settings.Scroll.Enabled, "click 分段捲動 -> Scroll.Enabled false");
+            Check(!host.Settings.Scroll.Enabled, "click PgDn半屏 -> Scroll.Enabled false");
             Check(host.Settings.Scroll.StepTicks == 4 && host.Settings.Scroll.PageTicks == 8, "toggle keeps ticks");
             Application.DoEvents();
-            Check(!tray.ScrollItem.Checked, "menu rebuilt: 分段捲動 unchecked");
-            Check(tray.TooltipText().EndsWith("分段捲動 關閉"), "tooltip: " + tray.TooltipText());
+            Check(!tray.ScrollItem.Checked, "menu rebuilt: PgDn半屏 unchecked");
+            Check(tray.TooltipText().EndsWith("PgDn半屏 關閉"), "tooltip: " + tray.TooltipText());
             tray.ScrollItem.PerformClick();
-            Check(host.Settings.Scroll.Enabled, "click 分段捲動 again -> true");
+            Check(host.Settings.Scroll.Enabled, "click PgDn半屏 again -> true");
             Application.DoEvents();
 
             tray.AltMouseItem.PerformClick();
@@ -160,18 +160,13 @@ static class UiPreview
             tray.TuneForm.Close();
             Application.DoEvents();
 
-            ToolStripMenuItem mini = null;
-            foreach (ToolStripMenuItem it in tray.ProfileItems)
-                if ((string)it.Tag == "mini")
-                    mini = it;
-            Check(mini != null && mini.Text == "迷你鍵盤", "menu: mini profile item uses Description");
-            mini.PerformClick();
-            Check(host.Settings.ActiveProfile == "mini", "click 迷你鍵盤 -> ActiveProfile mini");
+            tray.NumpadSixKeysItem.PerformClick();
+            Check(host.Settings.NumpadSixKeys && host.Settings.Keys.Remap.Count == 4, "click 數字鍵模擬編輯鍵區 -> NumpadSixKeys on with four remaps");
             Application.DoEvents();
-            Check(!tray.AutoProfileItem.Checked, "menu: 自動辨識 unchecked after lock");
-            Check(tray.TooltipText() == "KeyBank：啟用｜迷你鍵盤｜單次 4 格 / 整頁 8 格", "tooltip with mini: " + tray.TooltipText());
-            tray.AutoProfileItem.PerformClick();
-            Check(host.Settings.ActiveProfile == "auto", "click 自動辨識 -> auto");
+            Check(tray.NumpadSixKeysItem.Checked, "menu rebuilt: 數字鍵模擬編輯鍵區 checked");
+            Check(tray.TooltipText() == "KeyBank：啟用｜數字鍵模擬開｜單次 4 格 / 整頁 8 格", "tooltip with numpad on: " + tray.TooltipText());
+            tray.NumpadSixKeysItem.PerformClick();
+            Check(!host.Settings.NumpadSixKeys, "click 數字鍵模擬編輯鍵區 again -> off");
 
             tray.AutoStartItem.PerformClick();
             Check(auto.Value, "click 開機自動啟動 -> injected IAutoStart on (registry untouched)");
@@ -199,8 +194,8 @@ static class UiPreview
 
     static void RuleAssertions()
     {
-        Settings s = Settings.Load(DefaultConfig.Json.Replace("\"altMouse\": false", "\"altMouse\": true"));
-        ClusterCell[][] mini = RuleModel.BuildCluster(s.Profile("mini"));
+        Settings s = Settings.Load(DefaultConfig.Json.Replace("\"altMouse\": false", "\"altMouse\": true").Replace("\"numpadSixKeys\": false", "\"numpadSixKeys\": true"));
+        ClusterCell[][] mini = RuleModel.BuildCluster(s.Keys);
         string after = "";
         foreach (ClusterCell[] r in mini)
         {
@@ -212,14 +207,16 @@ static class UiPreview
         Check(mini[0][0].Badge == "長按 500ms → PrtScr", "mini Home badge");
         Check(!mini[0][0].Changed && mini[0][2].Changed && mini[0][3].Changed && mini[1][2].Changed && mini[1][3].Changed, "mini changed flags");
 
-        ClusterCell[][] full = RuleModel.BuildCluster(s.Profile("full"));
+        Settings sOff = Settings.Load(DefaultConfig.Json);
+        ClusterCell[][] full = RuleModel.BuildCluster(sOff.Keys);
         bool anyChanged = false;
         foreach (ClusterCell[] r in full)
             foreach (ClusterCell c in r)
                 anyChanged |= c.Changed || c.Badge != null;
-        Check(!anyChanged, "full cluster has no changes");
+        Check(!anyChanged || full[0][0].Badge != null, "numpad off: only the Home hold badge shows, no remaps");
+        Check(!full[0][2].Changed && !full[0][3].Changed && !full[1][2].Changed && !full[1][3].Changed, "numpad off: no key is remapped");
 
-        List<RuleRow> rows = RuleModel.BuildRows(s, s.Profile("mini"));
+        List<RuleRow> rows = RuleModel.BuildRows(s);
         Check(rows[0].Press == "Alt+C" && rows[0].Becomes == "Ctrl+C" && rows[0].Note.StartsWith("Shift 照常"), "first alt row");
         Check(rows[1].Note == "", "only first alt row has note");
 
@@ -244,7 +241,7 @@ static class UiPreview
         f.AltMouse = false;
         f.Scroll.Apps["chrome"] = new ScrollAppConfig { StepTicks = 6, PageTicks = 12 };
         Settings s2 = Settings.Compile(f);
-        List<RuleRow> rows2 = RuleModel.BuildRows(s2, s2.Profile("full"));
+        List<RuleRow> rows2 = RuleModel.BuildRows(s2);
         RuleRow app = Find(rows2, RuleModel.CatScroll, "PgUp / PgDn（chrome）");
         Check(app != null && app.Becomes == "單次 6 格；整頁 12 格", "per-app scroll row");
         Check(Find(rows2, RuleModel.CatAltMouse, "Alt + 滑鼠按鍵或滾輪").Becomes == "已關閉", "Alt mouse row off");
@@ -255,13 +252,13 @@ static class UiPreview
         f.WheelFilter.WindowMs = 100;
         f.WheelFilter.ThresholdDelta = 240;
         Settings sw = Settings.Compile(f);
-        RuleRow wheelOn = Find(RuleModel.BuildRows(sw, sw.Profile("full")), RuleModel.CatWheel, "滾輪（同方向捲動中夾雜的反向小幅事件）");
+        RuleRow wheelOn = Find(RuleModel.BuildRows(sw), RuleModel.CatWheel, "滾輪（同方向捲動中夾雜的反向小幅事件）");
         Check(wheelOn != null && wheelOn.Becomes == "丟棄；時間窗 100 毫秒、位移門檻 240" && wheelOn.Note == "真正的反向（超過門檻）仍會放行", "wheel row on: " + (wheelOn == null ? "missing" : wheelOn.Becomes));
         f.WheelFilter.Enabled = false;
 
         f.Scroll.Enabled = false;
         Settings s3 = Settings.Compile(f);
-        List<RuleRow> rows3 = RuleModel.BuildRows(s3, s3.Profile("full"));
+        List<RuleRow> rows3 = RuleModel.BuildRows(s3);
         Check(Find(rows3, RuleModel.CatScroll, "PgUp / PgDn").Becomes == "已關閉" && Find(rows3, RuleModel.CatScroll, "PgUp / PgDn（chrome）") == null, "scroll off hides rows");
     }
 
@@ -439,6 +436,7 @@ static class UiPreview
             c.WheelFilter.Enabled = true;
             c.WheelFilter.WindowMs = 100;
             c.WheelFilter.ThresholdDelta = 240;
+            c.NumpadSixKeys = profile == "mini";
         });
         SettingsForm f = new SettingsForm(host);
         if (scale != 1.0f)
@@ -448,7 +446,6 @@ static class UiPreview
         }
         f.StartPosition = FormStartPosition.Manual;
         f.Location = new Point(40, 40);
-        f.SelectProfile(profile);
         f.Show();
         Application.DoEvents();
         f.PerformLayout();

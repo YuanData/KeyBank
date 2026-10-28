@@ -160,7 +160,7 @@ namespace KeyBank.Core
         readonly Func<string> foreground;
         readonly WheelReversalFilter wheelFilter;
         readonly WheelAccelerator wheelAccel;
-        ProfileRuntime profile;
+        readonly KeyRules keys;
         readonly HashSet<int> mods = new HashSet<int>();
         readonly HashSet<int> chordHeld = new HashSet<int>();
         readonly HashSet<MouseButton> mouseHeld = new HashSet<MouseButton>();
@@ -177,32 +177,18 @@ namespace KeyBank.Core
         long lastPressAt = long.MinValue / 2;
         long lastScrollAt = long.MinValue / 2;
 
-        public Pipeline(Settings settings, string profileName)
-            : this(settings, profileName, null)
+        public Pipeline(Settings settings)
+            : this(settings, null)
         {
         }
 
-        public Pipeline(Settings settings, string profileName, Func<string> foregroundApp)
+        public Pipeline(Settings settings, Func<string> foregroundApp)
         {
             this.settings = settings;
             foreground = foregroundApp;
             wheelFilter = new WheelReversalFilter(settings.WheelFilter.WindowMs, settings.WheelFilter.ThresholdDelta);
             wheelAccel = new WheelAccelerator(settings.WheelAccel);
-            profile = settings.Profile(profileName);
-        }
-
-        public string ProfileName
-        {
-            get { return profile.Name; }
-        }
-
-        public List<Out> SetProfile(string name)
-        {
-            if (name == profile.Name)
-                return new List<Out>();
-            List<Out> releases = ReleaseAll();
-            profile = settings.Profile(name);
-            return releases;
+            keys = settings.Keys;
         }
 
         public List<Out> ReleaseAll()
@@ -325,7 +311,7 @@ namespace KeyBank.Core
 
             int vk = e.Vk;
             int mapped;
-            if (profile.Remap.TryGetValue(vk, out mapped))
+            if (keys.Remap.TryGetValue(vk, out mapped))
                 vk = mapped;
             KeyEvent logical = new KeyEvent(vk, e.Down);
 
@@ -354,7 +340,7 @@ namespace KeyBank.Core
         Result TapHold(KeyEvent e, long now)
         {
             TapHoldRuntime rule;
-            if (!profile.TapHold.TryGetValue(e.Vk, out rule))
+            if (!keys.TapHold.TryGetValue(e.Vk, out rule))
                 return null;
 
             if (e.Down)
@@ -451,7 +437,7 @@ namespace KeyBank.Core
             }
 
             bool isChordKey = e.Down && alt != AltState.None && !ControlOrWinHeld()
-                && (profile.AltChords.Contains(e.Vk) || AppChord(e.Vk));
+                && (keys.AltChords.Contains(e.Vk) || AppChord(e.Vk));
 
             if (isChordKey)
             {

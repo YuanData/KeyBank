@@ -107,7 +107,7 @@ namespace KeyBank.Ui
             wrapping.Add(appsLabel);
             AddRow(appsLabel, new Padding(0, 2, 0, 2));
 
-            offLabel.Text = "分段捲動目前是關閉的，滑桿的設定仍會存檔，開啟後才會生效。";
+            offLabel.Text = "PgDn半屏目前是關閉的，滑桿的設定仍會存檔，開啟後才會生效。";
             offLabel.AutoSize = true;
             offLabel.ForeColor = Color.DarkOrange;
             wrapping.Add(offLabel);

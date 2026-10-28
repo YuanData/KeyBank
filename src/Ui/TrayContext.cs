@@ -35,10 +35,9 @@ namespace KeyBank.Ui
         internal ToolStripMenuItem WheelFilterItem;
         internal ToolStripMenuItem WheelAccelItem;
         internal ToolStripMenuItem TuneItem;
-        internal ToolStripMenuItem AutoProfileItem;
+        internal ToolStripMenuItem NumpadSixKeysItem;
         internal ToolStripMenuItem AutoStartItem;
         internal ToolStripItem ErrorItem;
-        internal readonly List<ToolStripMenuItem> ProfileItems = new List<ToolStripMenuItem>();
         internal string LastBalloon;
 
         public TrayContext(IEngineHost host) : this(host, new RegistryAutoStart(), true)
@@ -98,7 +97,6 @@ namespace KeyBank.Ui
             menu.Items.Clear();
             foreach (ToolStripItem old in stale)
                 old.Dispose();
-            ProfileItems.Clear();
             ErrorItem = null;
 
             if (err != null)
@@ -114,7 +112,7 @@ namespace KeyBank.Ui
             EnabledItem.Click += delegate { ToggleEnabled(); };
             menu.Items.Add(EnabledItem);
 
-            ScrollItem = new ToolStripMenuItem("分段捲動");
+            ScrollItem = new ToolStripMenuItem("PgDn半屏");
             ScrollItem.Checked = s.Scroll.Enabled;
             ScrollItem.Click += delegate { ToggleScroll(); };
             menu.Items.Add(ScrollItem);
@@ -142,25 +140,11 @@ namespace KeyBank.Ui
             TuneItem.Click += delegate { ShowTune(); };
             menu.Items.Add(TuneItem);
 
-            ToolStripMenuItem kb = new ToolStripMenuItem("鍵盤設定");
-            AutoProfileItem = new ToolStripMenuItem("自動辨識");
-            AutoProfileItem.Checked = s.ActiveProfile == "auto";
-            AutoProfileItem.Tag = "auto";
-            AutoProfileItem.Click += delegate { LockProfile("auto"); };
-            kb.DropDownItems.Add(AutoProfileItem);
-            List<string> names = new List<string>(s.Profiles.Keys);
-            names.Sort(StringComparer.OrdinalIgnoreCase);
-            foreach (string name in names)
-            {
-                string n = name;
-                ToolStripMenuItem item = new ToolStripMenuItem(s.Profiles[n].Description);
-                item.Checked = s.ActiveProfile == n;
-                item.Tag = n;
-                item.Click += delegate { LockProfile(n); };
-                ProfileItems.Add(item);
-                kb.DropDownItems.Add(item);
-            }
-            menu.Items.Add(kb);
+            NumpadSixKeysItem = new ToolStripMenuItem("數字鍵模擬編輯鍵區");
+            NumpadSixKeysItem.ToolTipText = "小鍵盤的鍵代替 Home、End、Page Up、Page Down。關閉時小鍵盤維持原本的數字鍵盤。";
+            NumpadSixKeysItem.Checked = s.NumpadSixKeys;
+            NumpadSixKeysItem.Click += delegate { ToggleNumpadSixKeys(); };
+            menu.Items.Add(NumpadSixKeysItem);
 
             menu.Items.Add(new ToolStripSeparator());
             ToolStripMenuItem view = new ToolStripMenuItem("查看目前設定…");
@@ -188,10 +172,7 @@ namespace KeyBank.Ui
         internal string TooltipText()
         {
             Settings s = host.Settings;
-            string name = host.ActiveProfileName;
-            ProfileRuntime p;
-            string desc = name != null && s.Profiles.TryGetValue(name, out p) ? p.Description : (name ?? "");
-            string text = "KeyBank：" + (s.Enabled ? "啟用" : "停用") + "｜" + desc + "｜" + RuleModel.ScrollSummary(s);
+            string text = "KeyBank：" + (s.Enabled ? "啟用" : "停用") + "｜" + (s.NumpadSixKeys ? "數字鍵模擬開" : "數字鍵模擬關") + "｜" + RuleModel.ScrollSummary(s);
             if (host.LastError != null)
                 text = "設定檔有錯誤｜" + text;
             return Truncate(text, 63);
@@ -263,9 +244,10 @@ namespace KeyBank.Ui
             });
         }
 
-        internal void LockProfile(string name)
+        internal void ToggleNumpadSixKeys()
         {
-            Apply(delegate(ConfigFile f) { f.ActiveProfile = name; });
+            bool target = !host.Settings.NumpadSixKeys;
+            Apply(delegate(ConfigFile f) { f.NumpadSixKeys = target; });
         }
 
         void ToggleAutoStart()
@@ -380,7 +362,7 @@ namespace KeyBank.Ui
             return DrawIcon(enabled, SystemInformation.SmallIconSize);
         }
 
-        // Gray tile with a white asterisk. Disabled adds a red "no" sign (ring and slash) over the whole tile.
+        // Dark green tile with a white asterisk. Disabled adds a red "no" sign (ring and slash) over the whole tile.
         internal static Icon DrawIcon(bool enabled, Size size)
         {
             using (Bitmap bmp = new Bitmap(size.Width, size.Height, PixelFormat.Format32bppArgb))
@@ -391,7 +373,7 @@ namespace KeyBank.Ui
                     float w = size.Width, h = size.Height;
                     RectangleF r = new RectangleF(0.5f, 0.5f, w - 1.5f, h - 1.5f);
                     using (GraphicsPath path = RoundRect(r, w * 0.22f))
-                    using (Brush b = new SolidBrush(Color.FromArgb(0x6E, 0x73, 0x7C)))
+                    using (Brush b = new SolidBrush(Color.FromArgb(0x1B, 0x5E, 0x20)))
                         g.FillPath(b, path);
 
                     float cx = w / 2f, cy = h / 2f, arm = Math.Min(w, h) * 0.3f;
