@@ -45,6 +45,27 @@ namespace KeyBank.Win
             return exe.Length > 0 ? exe : null;
         }
 
+        // True when the foreground window's IME is open and typing full-width characters. Any failure or
+        // timeout answers false, so an app that does not talk to the IME just gets the normal line length.
+        public bool IsFullWidthInput()
+        {
+            IntPtr hwnd = foregroundWindow();
+            if (hwnd == IntPtr.Zero)
+                return false;
+            IntPtr ime = Native.ImmGetDefaultIMEWnd(hwnd);
+            if (ime == IntPtr.Zero)
+                return false;
+            IntPtr open;
+            IntPtr mode;
+            if (Native.SendMessageTimeout(ime, Native.WM_IME_CONTROL, (IntPtr)Native.IMC_GETOPENSTATUS, IntPtr.Zero,
+                    Native.SMTO_ABORTIFHUNG, 30, out open) == IntPtr.Zero || open == IntPtr.Zero)
+                return false;
+            if (Native.SendMessageTimeout(ime, Native.WM_IME_CONTROL, (IntPtr)Native.IMC_GETCONVERSIONMODE, IntPtr.Zero,
+                    Native.SMTO_ABORTIFHUNG, 30, out mode) == IntPtr.Zero)
+                return false;
+            return ((long)mode & Native.IME_CMODE_FULLSHAPE) != 0;
+        }
+
         public bool IsExcluded(HashSet<string> excluded)
         {
             string exe = CurrentExeName();

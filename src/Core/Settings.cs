@@ -66,6 +66,7 @@ namespace KeyBank.Core
     {
         public bool Enabled = true;
         public int Count = 88;
+        public int FullWidthCount = 36;
         public int AfterRepeats = 6;
     }
 
@@ -317,6 +318,7 @@ namespace KeyBank.Core
             Dictionary<string, object> sep = new Dictionary<string, object>();
             sep["enabled"] = sp.Enabled;
             sep["count"] = sp.Count;
+            sep["fullWidthCount"] = sp.FullWidthCount;
             sep["afterRepeats"] = sp.AfterRepeats;
             root["separator"] = sep;
             DiagnosticsConfig dg = Diagnostics ?? new DiagnosticsConfig();
@@ -459,6 +461,7 @@ namespace KeyBank.Core
     {
         public bool Enabled;
         public int Count;
+        public int FullWidthCount;
         public int AfterRepeats;
     }
 
@@ -574,9 +577,12 @@ namespace KeyBank.Core
                 throw new ConfigException("separator.afterRepeats 必須介於 3 到 50。");
             if (c.Count <= c.AfterRepeats || c.Count > 500)
                 throw new ConfigException("separator.count 必須大於 afterRepeats，且不超過 500。");
+            if (c.FullWidthCount <= c.AfterRepeats || c.FullWidthCount > 500)
+                throw new ConfigException("separator.fullWidthCount 必須大於 afterRepeats，且不超過 500。");
             SeparatorRuntime r = new SeparatorRuntime();
             r.Enabled = c.Enabled;
             r.Count = c.Count;
+            r.FullWidthCount = c.FullWidthCount;
             r.AfterRepeats = c.AfterRepeats;
             return r;
         }
@@ -783,7 +789,7 @@ namespace KeyBank.Core
   ""altMouse"": false,
   ""wheelFilter"": { ""enabled"": false, ""windowMs"": 80, ""thresholdDelta"": 120 },
   ""wheelAccel"": { ""enabled"": false, ""gear"": 3, ""gapMs"": 100, ""startTicks"": 3, ""rampTicks"": 5, ""tickBoost"": 1, ""timeStartMs"": 500, ""timeRampMs"": 1000, ""timeBoost"": 2, ""maxMultiplier"": 5, ""chainGapMs"": 1200, ""chainStart1"": 3, ""chainBoost1"": 0, ""chainStart2"": 5, ""chainBoost2"": 0 },
-  ""separator"": { ""enabled"": true, ""count"": 88, ""afterRepeats"": 6 },
+  ""separator"": { ""enabled"": true, ""count"": 88, ""fullWidthCount"": 36, ""afterRepeats"": 6 },
   ""diagnostics"": { ""wheelLog"": true, ""burstGapMs"": 250, ""markKey"": ""F9"" },
   ""excludeApps"": [],
   ""appAltChords"": {

@@ -220,7 +220,8 @@ namespace KeyBank.Ui
             SeparatorRuntime sp = s.Separator;
             rows.Add(sp.Enabled
                 ? Row(CatSeparator, "長按 - = *（主鍵區、Shift+8、小鍵盤）",
-                    "補到 " + sp.Count.ToString(CultureInfo.InvariantCulture) + " 個，放開前不再增加",
+                    "補到 " + sp.Count.ToString(CultureInfo.InvariantCulture) + " 個（全形輸入時 "
+                        + sp.FullWidthCount.ToString(CultureInfo.InvariantCulture) + " 個），放開前不再增加",
                     "自動重複的第 " + sp.AfterRepeats.ToString(CultureInfo.InvariantCulture) + " 個時補滿；連打不算")
                 : Row(CatSeparator, "長按 - = *（主鍵區、Shift+8、小鍵盤）", "已關閉", ""));
 

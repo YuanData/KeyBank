@@ -467,7 +467,7 @@ namespace KeyBank.Win
 
         Pipeline NewPipeline()
         {
-            return new Pipeline(cur, foreground.CurrentExeName);
+            return new Pipeline(cur, foreground.CurrentExeName, foreground.IsFullWidthInput);
         }
 
         // A hook callback that runs past Windows' limit can get the hook dropped, and the first call of every
@@ -481,7 +481,7 @@ namespace KeyBank.Win
                 mouse.WarmUp();
 
                 Settings s = cur;
-                Pipeline p = new Pipeline(s, foreground.CurrentExeName);
+                Pipeline p = new Pipeline(s, foreground.CurrentExeName, foreground.IsFullWidthInput);
                 List<Out> built = new List<Out>();
                 long t = 0;
                 int[] vks = { 'A', Vk.LAlt, 'A', Vk.PageDown, Vk.Home };

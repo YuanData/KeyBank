@@ -368,7 +368,7 @@ static class CoreTests
         p = NewWith(off, "full");
         Expect("separator: off passes everything", "pass pass pass pass pass pass pass", Hold(p, Vk.OemMinus, 7));
 
-        string custom = Cfg.Replace("\"count\": 88, \"afterRepeats\": 6", "\"count\": 20, \"afterRepeats\": 4");
+        string custom = Cfg.Replace("\"count\": 88, \"fullWidthCount\": 36, \"afterRepeats\": 6", "\"count\": 20, \"fullWidthCount\": 12, \"afterRepeats\": 4");
         p = NewWith(custom, "full");
         Expect("separator: custom count and trigger", "pass pass pass fill17", Hold(p, Vk.OemMinus, 4));
 
@@ -376,9 +376,25 @@ static class CoreTests
             Settings.Load(Cfg).Separator.Enabled + "/" + Settings.Load(Cfg).Separator.Count + "/" + Settings.Load(Cfg).Separator.AfterRepeats);
         Expect("separator: written back by ToJson", "True", Settings.Load(Cfg).File.ToJson().Contains("\"separator\"").ToString());
         Expect("separator: a file without the section keeps it on", "True",
-            Settings.Load(Cfg.Replace("  \"separator\": { \"enabled\": true, \"count\": 88, \"afterRepeats\": 6 },\n", "")).Separator.Enabled.ToString());
+            Settings.Load(Cfg.Replace("  \"separator\": { \"enabled\": true, \"count\": 88, \"fullWidthCount\": 36, \"afterRepeats\": 6 },\n", "")).Separator.Enabled.ToString());
         ExpectThrows("separator: afterRepeats too small", "separator.afterRepeats", Cfg.Replace("\"afterRepeats\": 6", "\"afterRepeats\": 2"));
         ExpectThrows("separator: count not above afterRepeats", "separator.count", Cfg.Replace("\"count\": 88", "\"count\": 6"));
+        ExpectThrows("separator: fullWidthCount not above afterRepeats", "separator.fullWidthCount", Cfg.Replace("\"fullWidthCount\": 36", "\"fullWidthCount\": 6"));
+        Expect("separator: full-width count defaults to 36", "36", Settings.Load(Cfg).Separator.FullWidthCount.ToString());
+        Expect("separator: a file without fullWidthCount gets 36", "36",
+            Settings.Load(Cfg.Replace("\"fullWidthCount\": 36, ", "")).Separator.FullWidthCount.ToString());
+
+        bool wide = true;
+        p = new Pipeline(Settings.Load(Cfg), delegate { return null; }, delegate { return wide; });
+        Expect("separator: full-width input fills to 36", "pass pass pass pass pass fill31", Hold(p, Vk.OemMinus, 6));
+        Send(p, "-Minus");
+        wide = false;
+        Expect("separator: half-width input still fills to 88", "pass pass pass pass pass fill83", Hold(p, Vk.OemMinus, 6));
+        Send(p, "-Minus");
+        wide = true;
+        Hold(p, Vk.OemMinus, 3);
+        Send(p, "-Minus");
+        Expect("separator: the probe is only asked at the trigger", "pass pass pass pass pass fill31", Hold(p, Vk.OemMinus, 6));
     }
 
     static void WheelFilterTests()

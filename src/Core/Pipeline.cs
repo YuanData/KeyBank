@@ -158,6 +158,7 @@ namespace KeyBank.Core
 
         readonly Settings settings;
         readonly Func<string> foreground;
+        readonly Func<bool> fullWidth;
         readonly WheelReversalFilter wheelFilter;
         readonly WheelAccelerator wheelAccel;
         readonly KeyRules keys;
@@ -186,9 +187,15 @@ namespace KeyBank.Core
         }
 
         public Pipeline(Settings settings, Func<string> foregroundApp)
+            : this(settings, foregroundApp, null)
+        {
+        }
+
+        public Pipeline(Settings settings, Func<string> foregroundApp, Func<bool> fullWidthInput)
         {
             this.settings = settings;
             foreground = foregroundApp;
+            fullWidth = fullWidthInput;
             wheelFilter = new WheelReversalFilter(settings.WheelFilter.WindowMs, settings.WheelFilter.ThresholdDelta);
             wheelAccel = new WheelAccelerator(settings.WheelAccel);
             keys = settings.Keys;
@@ -337,9 +344,11 @@ namespace KeyBank.Core
                 return null;
 
             sepCapped = true;
+            // Full-width characters are about twice as wide, so the line gets its own, shorter length.
+            int total = fullWidth != null && fullWidth() ? sep.FullWidthCount : sep.Count;
             int typed = sep.AfterRepeats - 1;
             List<Out> outs = new List<Out>();
-            for (int i = typed; i < sep.Count; i++)
+            for (int i = typed; i < total; i++)
             {
                 outs.Add(Out.Key(e.Vk, true));
                 outs.Add(Out.Key(e.Vk, false));

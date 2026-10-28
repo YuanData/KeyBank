@@ -165,6 +165,19 @@ namespace KeyBank.Win
         [DllImport("user32.dll")]
         public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
+        [DllImport("imm32.dll")]
+        public static extern IntPtr ImmGetDefaultIMEWnd(IntPtr hWnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam,
+            uint flags, uint timeoutMs, out IntPtr result);
+
+        public const uint WM_IME_CONTROL = 0x0283;
+        public const int IMC_GETCONVERSIONMODE = 0x0001;
+        public const int IMC_GETOPENSTATUS = 0x0005;
+        public const uint SMTO_ABORTIFHUNG = 0x0002;
+        public const int IME_CMODE_FULLSHAPE = 0x0008;
+
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern IntPtr OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint pid);
 

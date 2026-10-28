@@ -27,7 +27,29 @@ static class SeparatorProbe
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
 
+    [DllImport("imm32.dll")] static extern IntPtr ImmGetContext(IntPtr h);
+    [DllImport("imm32.dll")] static extern bool ImmReleaseContext(IntPtr h, IntPtr ctx);
+    [DllImport("imm32.dll")] static extern bool ImmSetOpenStatus(IntPtr ctx, bool open);
+    [DllImport("imm32.dll")] static extern bool ImmSetConversionStatus(IntPtr ctx, int conversion, int sentence);
+
+    const int IME_CMODE_NATIVE = 0x1, IME_CMODE_FULLSHAPE = 0x8;
+
     static readonly int Size = Marshal.SizeOf(typeof(INPUT));
+
+    // Puts the probe's own text box into an open, full-width IME state so the hook sees what a Chinese-mode user has.
+    static bool SetFullWidth(TextBox box, bool on)
+    {
+        bool ok = false;
+        box.Invoke((MethodInvoker)delegate
+        {
+            IntPtr ctx = ImmGetContext(box.Handle);
+            if (ctx == IntPtr.Zero)
+                return;
+            ok = ImmSetOpenStatus(ctx, on) && ImmSetConversionStatus(ctx, on ? IME_CMODE_NATIVE | IME_CMODE_FULLSHAPE : 0, 0);
+            ImmReleaseContext(box.Handle, ctx);
+        });
+        return ok;
+    }
 
     static void Key(ushort vk, bool down)
     {
@@ -134,6 +156,19 @@ static class SeparatorProbe
                 Console.WriteLine("tap - ten times      : " + taps);
                 Console.WriteLine("hold - (4 repeats)   : " + shortHold);
                 bool ok = dash == "88 x '-'" && equals == "88 x '='" && star == "88 x '*'" && taps == "10 x '-'" && shortHold == "4 x '-'";
+
+                string wide = "skipped";
+                if (Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "wide")
+                {
+                    form.Invoke((MethodInvoker)delegate { box.ImeMode = ImeMode.NoControl; box.Focus(); });
+                    Thread.Sleep(300);
+                    bool set = SetFullWidth(box, true);
+                    Thread.Sleep(300);
+                    Hold(VK_MINUS, 12);
+                    wide = "imm set=" + set + ", typed " + Text(box).Length + " chars";
+                    SetFullWidth(box, false);
+                }
+                Console.WriteLine("full-width pass      : " + wide);
                 Console.WriteLine("RESULT: " + (ok ? "PASS" : "FAIL"));
                 exit = ok ? 0 : 1;
             }
