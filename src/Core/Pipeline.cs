@@ -161,6 +161,9 @@ namespace KeyBank.Core
         readonly WheelReversalFilter wheelFilter;
         readonly WheelAccelerator wheelAccel;
         readonly KeyRules keys;
+        int sepKey;
+        int sepRepeats;
+        bool sepCapped;
         readonly HashSet<int> mods = new HashSet<int>();
         readonly HashSet<int> chordHeld = new HashSet<int>();
         readonly HashSet<MouseButton> mouseHeld = new HashSet<MouseButton>();
@@ -297,6 +300,79 @@ namespace KeyBank.Core
             return outs;
         }
 
+        // Holding - = or * (main row, Shift+8, or the numpad) draws a rule line. Auto-repeat is a key-down with
+        // no key-up in between, so a tap never counts. The AfterRepeats-th down is replaced by presses that
+        // bring the line to Count in total, and every later repeat is swallowed until the key is released.
+        Result Separator(KeyEvent e)
+        {
+            SeparatorRuntime sep = settings.Separator;
+            if (!sep.Enabled)
+                return null;
+
+            if (!e.Down)
+            {
+                if (e.Vk == sepKey)
+                    ResetSeparator();
+                return null;
+            }
+            if (Vk.IsModifier(e.Vk))
+                return null;
+            if (!IsSeparatorKey(e.Vk) || alt != AltState.None || ControlOrWinHeld() || mods.Contains(Vk.RAlt))
+            {
+                ResetSeparator();
+                return null;
+            }
+
+            if (e.Vk != sepKey)
+            {
+                sepKey = e.Vk;
+                sepRepeats = 1;
+                sepCapped = false;
+                return null;
+            }
+            if (sepCapped)
+                return Result.Swallow();
+            sepRepeats++;
+            if (sepRepeats < sep.AfterRepeats)
+                return null;
+
+            sepCapped = true;
+            int typed = sep.AfterRepeats - 1;
+            List<Out> outs = new List<Out>();
+            for (int i = typed; i < sep.Count; i++)
+            {
+                outs.Add(Out.Key(e.Vk, true));
+                outs.Add(Out.Key(e.Vk, false));
+            }
+            return Result.Of(outs);
+        }
+
+        void ResetSeparator()
+        {
+            sepKey = 0;
+            sepRepeats = 0;
+            sepCapped = false;
+        }
+
+        // The key must produce the plain character: Shift off for - and =, Shift on for 8 (which types *).
+        bool IsSeparatorKey(int vk)
+        {
+            bool shift = mods.Contains(Vk.LShift) || mods.Contains(Vk.RShift);
+            switch (vk)
+            {
+                case Vk.OemMinus:
+                case Vk.OemEquals:
+                    return !shift;
+                case Vk.Key8:
+                    return shift;
+                case Vk.Multiply:
+                case Vk.Subtract:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         bool ControlOrWinHeld()
         {
             return mods.Contains(Vk.LCtrl) || mods.Contains(Vk.RCtrl)
@@ -320,6 +396,10 @@ namespace KeyBank.Core
                 return r;
 
             r = AltChord(logical);
+            if (r != null)
+                return r;
+
+            r = Separator(logical);
             if (r != null)
                 return r;
 

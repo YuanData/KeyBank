@@ -62,6 +62,13 @@ namespace KeyBank.Core
         public double ChainBoost2 = 0;
     }
 
+    public class SeparatorConfig
+    {
+        public bool Enabled = true;
+        public int Count = 88;
+        public int AfterRepeats = 6;
+    }
+
     public class DiagnosticsConfig
     {
         public bool WheelLog = true;
@@ -115,6 +122,7 @@ namespace KeyBank.Core
         public bool AltMouse = false;
         public WheelFilterConfig WheelFilter = new WheelFilterConfig();
         public WheelAccelConfig WheelAccel = new WheelAccelConfig();
+        public SeparatorConfig Separator = new SeparatorConfig();
         public DiagnosticsConfig Diagnostics = new DiagnosticsConfig();
         public List<string> ExcludeApps = new List<string>();
         public Dictionary<string, List<string>> AppAltChords;
@@ -305,6 +313,12 @@ namespace KeyBank.Core
             accel["chainStart2"] = wa.ChainStart2;
             accel["chainBoost2"] = wa.ChainBoost2;
             root["wheelAccel"] = accel;
+            SeparatorConfig sp = Separator ?? new SeparatorConfig();
+            Dictionary<string, object> sep = new Dictionary<string, object>();
+            sep["enabled"] = sp.Enabled;
+            sep["count"] = sp.Count;
+            sep["afterRepeats"] = sp.AfterRepeats;
+            root["separator"] = sep;
             DiagnosticsConfig dg = Diagnostics ?? new DiagnosticsConfig();
             Dictionary<string, object> diag = new Dictionary<string, object>();
             diag["wheelLog"] = dg.WheelLog;
@@ -441,6 +455,13 @@ namespace KeyBank.Core
         public double ChainBoost2;
     }
 
+    public sealed class SeparatorRuntime
+    {
+        public bool Enabled;
+        public int Count;
+        public int AfterRepeats;
+    }
+
     public sealed class DiagnosticsRuntime
     {
         public bool WheelLog;
@@ -459,6 +480,7 @@ namespace KeyBank.Core
         public bool AltMouse;
         public WheelFilterRuntime WheelFilter;
         public WheelAccelRuntime WheelAccel;
+        public SeparatorRuntime Separator;
         public DiagnosticsRuntime Diagnostics;
         public HashSet<string> ExcludeApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, HashSet<int>> AppChords = new Dictionary<string, HashSet<int>>();
@@ -490,6 +512,7 @@ namespace KeyBank.Core
             s.AltMouse = f.AltMouse;
             s.WheelFilter = CompileWheelFilter(f.WheelFilter ?? new WheelFilterConfig());
             s.WheelAccel = CompileWheelAccel(f.WheelAccel ?? new WheelAccelConfig());
+            s.Separator = CompileSeparator(f.Separator ?? new SeparatorConfig());
             s.Diagnostics = CompileDiagnostics(f.Diagnostics ?? new DiagnosticsConfig());
             s.Scroll = CompileScroll(f.EffectiveScroll());
 
@@ -542,6 +565,19 @@ namespace KeyBank.Core
             r.Enabled = c.Enabled;
             r.WindowMs = c.WindowMs;
             r.ThresholdDelta = c.ThresholdDelta;
+            return r;
+        }
+
+        static SeparatorRuntime CompileSeparator(SeparatorConfig c)
+        {
+            if (c.AfterRepeats < 3 || c.AfterRepeats > 50)
+                throw new ConfigException("separator.afterRepeats 必須介於 3 到 50。");
+            if (c.Count <= c.AfterRepeats || c.Count > 500)
+                throw new ConfigException("separator.count 必須大於 afterRepeats，且不超過 500。");
+            SeparatorRuntime r = new SeparatorRuntime();
+            r.Enabled = c.Enabled;
+            r.Count = c.Count;
+            r.AfterRepeats = c.AfterRepeats;
             return r;
         }
 
@@ -747,6 +783,7 @@ namespace KeyBank.Core
   ""altMouse"": false,
   ""wheelFilter"": { ""enabled"": false, ""windowMs"": 80, ""thresholdDelta"": 120 },
   ""wheelAccel"": { ""enabled"": false, ""gear"": 3, ""gapMs"": 100, ""startTicks"": 3, ""rampTicks"": 5, ""tickBoost"": 1, ""timeStartMs"": 500, ""timeRampMs"": 1000, ""timeBoost"": 2, ""maxMultiplier"": 5, ""chainGapMs"": 1200, ""chainStart1"": 3, ""chainBoost1"": 0, ""chainStart2"": 5, ""chainBoost2"": 0 },
+  ""separator"": { ""enabled"": true, ""count"": 88, ""afterRepeats"": 6 },
   ""diagnostics"": { ""wheelLog"": true, ""burstGapMs"": 250, ""markKey"": ""F9"" },
   ""excludeApps"": [],
   ""appAltChords"": {

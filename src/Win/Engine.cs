@@ -35,6 +35,7 @@ namespace KeyBank.Win
         const uint MsgSettings = Native.WM_APP + 1;
         const uint MsgWork = Native.WM_APP + 2;
         const uint MsgEmit = Native.WM_APP + 3;
+        const int BulkEmitThreshold = 16;
 
         struct TraceEntry
         {
@@ -56,7 +57,7 @@ namespace KeyBank.Win
         readonly bool trace;
         readonly ConcurrentQueue<TraceEntry> traceQueue = new ConcurrentQueue<TraceEntry>();
         readonly ConcurrentQueue<Action> work = new ConcurrentQueue<Action>();
-        readonly ConcurrentQueue<List<Out>> mouseOut = new ConcurrentQueue<List<Out>>();
+        readonly ConcurrentQueue<List<Out>> deferredOut = new ConcurrentQueue<List<Out>>();
         readonly string tracePath = Path.Combine(Path.GetTempPath(), "KeyBank.trace.log");
 
         readonly Thread hookThread;
@@ -278,7 +279,7 @@ namespace KeyBank.Win
 
         internal int PendingMouseOutputs
         {
-            get { return mouseOut.Count; }
+            get { return deferredOut.Count; }
         }
 
         internal bool PauseMouseDrain
@@ -288,12 +289,12 @@ namespace KeyBank.Win
         }
 
         // Hook thread only, outside any hook callback.
-        void DrainMouseOut()
+        void DrainDeferred()
         {
             if (pauseMouseDrain)
                 return;
             List<Out> batch;
-            while (!shutdownStarted && mouseOut.TryDequeue(out batch))
+            while (!shutdownStarted && deferredOut.TryDequeue(out batch))
             {
                 try
                 {
@@ -318,10 +319,10 @@ namespace KeyBank.Win
             CrashLog.Write("mouse inject short: " + sent + " of " + wanted + ", error " + Marshal.GetLastWin32Error());
         }
 
-        void DiscardMouseOut()
+        void DiscardDeferred()
         {
             List<Out> dropped;
-            while (mouseOut.TryDequeue(out dropped))
+            while (deferredOut.TryDequeue(out dropped))
             {
             }
         }
@@ -404,7 +405,7 @@ namespace KeyBank.Win
                         if (m.message == MsgEmit)
                         {
                             Beat();
-                            DrainMouseOut();
+                            DrainDeferred();
                             continue;
                         }
                         if (m.message == MsgSettings || m.message == MsgWork)
@@ -441,7 +442,7 @@ namespace KeyBank.Win
             }
             keyboard.Uninstall();
             mouse.Uninstall();
-            DiscardMouseOut();
+            DiscardDeferred();
             try
             {
                 Pipeline p = pipeline;
@@ -493,6 +494,9 @@ namespace KeyBank.Win
                         r.ToString();
                     }
                 }
+                for (int i = 0; i < 7; i++)
+                    built.AddRange(p.Process(new KeyEvent(Vk.OemMinus, true), t += 10).Emit);
+                p.Process(new KeyEvent(Vk.OemMinus, false), t += 10);
                 p.Process(new KeyEvent(Vk.LAlt, true), t += 10);
                 Result m = p.ProcessMouse(MouseEvent.Click(MouseButton.Left, true), t += 10);
                 built.AddRange(m.Emit);
@@ -565,7 +569,7 @@ namespace KeyBank.Win
             if (!object.ReferenceEquals(next, cur))
             {
                 foreground.Reset();
-                DiscardMouseOut();
+                DiscardDeferred();
                 Send(pipeline.ReleaseAll());
                 QueueLine(recorder.Flush());
                 cur = next;
@@ -662,6 +666,13 @@ namespace KeyBank.Win
 
             if (!r.Handled)
                 return false;
+            // A long burst such as a ruled line would sit inside the hook callback, so it is queued like mouse output.
+            if (r.Emit.Count > BulkEmitThreshold)
+            {
+                deferredOut.Enqueue(new List<Out>(r.Emit));
+                PostToHook(MsgEmit);
+                return true;
+            }
             Send(r.Emit);
             return true;
         }
@@ -771,7 +782,7 @@ namespace KeyBank.Win
             // unchanged can in theory overtake a queued injection by microseconds, which is accepted.
             if (r.Emit.Count > 0)
             {
-                mouseOut.Enqueue(new List<Out>(r.Emit));
+                deferredOut.Enqueue(new List<Out>(r.Emit));
                 PostToHook(MsgEmit);
             }
             return true;
@@ -792,7 +803,7 @@ namespace KeyBank.Win
             long t0 = Stopwatch.GetTimestamp();
             Beat();
             DrainWork();
-            DrainMouseOut();
+            DrainDeferred();
             ApplyPendingSettings();
 
             QueueLine(recorder.Poll(clock.ElapsedMilliseconds));
@@ -1001,7 +1012,7 @@ namespace KeyBank.Win
                         CrashLog.Write("Shutdown: hook thread did not exit within 1 s, hooks removed from the calling thread");
                         try
                         {
-                            DiscardMouseOut();
+                            DiscardDeferred();
                             Pipeline p = pipeline;
                             if (p != null)
                                 Send(p.ReleaseAll());

@@ -34,6 +34,7 @@ namespace KeyBank.Ui
         public const string CatScroll = "PgDn半屏";
         public const string CatAltMouse = "Alt 加滑鼠";
         public const string CatWheel = "滾輪";
+        public const string CatSeparator = "分隔線";
         public const string CatExclude = "排除的程式";
 
         public static string TickText(double ticks)
@@ -215,6 +216,13 @@ namespace KeyBank.Ui
                     "加速（" + (wa.Gear == 0 ? "自訂" : wa.Gear.ToString(CultureInfo.InvariantCulture) + " 檔") + "）；間隔不超過 " + wa.GapMs.ToString(CultureInfo.InvariantCulture) + " 毫秒算連續，上限 " + wa.MaxMultiplier.ToString("0.##", CultureInfo.InvariantCulture) + " 倍",
                     "累積格數與持續時間各加一段倍率；停頓或反向即重算")
                 : Row(CatWheel, "滾輪（持續轉動時）", "已關閉", "累積格數與持續時間各加一段倍率；停頓或反向即重算"));
+
+            SeparatorRuntime sp = s.Separator;
+            rows.Add(sp.Enabled
+                ? Row(CatSeparator, "長按 - = *（主鍵區、Shift+8、小鍵盤）",
+                    "補到 " + sp.Count.ToString(CultureInfo.InvariantCulture) + " 個，放開前不再增加",
+                    "自動重複的第 " + sp.AfterRepeats.ToString(CultureInfo.InvariantCulture) + " 個時補滿；連打不算")
+                : Row(CatSeparator, "長按 - = *（主鍵區、Shift+8、小鍵盤）", "已關閉", ""));
 
             if (s.ExcludeApps.Count == 0)
                 rows.Add(Row(CatExclude, "（無）", "", ""));

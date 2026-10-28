@@ -293,6 +293,94 @@ static class CoreTests
         Expect("pipeline accel: injected events are never accelerated", "pass pass pass pass pass pass ", seen);
     }
 
+    static int Presses(Result r, int vk)
+    {
+        int n = 0;
+        foreach (Out o in r.Emit)
+            if (o.Kind == OutKind.Key && o.Vk == vk && o.Down)
+                n++;
+        return n;
+    }
+
+    static string Hold(Pipeline p, int vk, int downs)
+    {
+        List<string> seen = new List<string>();
+        for (int i = 0; i < downs; i++)
+        {
+            clock += 30;
+            Result r = p.Process(new KeyEvent(vk, true), clock);
+            seen.Add(!r.Handled ? "pass" : r.Emit.Count == 0 ? "swallow" : Presses(r, vk) > 0 ? "fill" + Presses(r, vk) : "other");
+        }
+        return string.Join(" ", seen.ToArray());
+    }
+
+    static void SeparatorTests()
+    {
+        Pipeline p = New("full");
+        Expect("separator: five repeats still type normally", "pass pass pass pass pass", Hold(p, Vk.OemMinus, 5));
+        Expect("separator: the sixth repeat fills the line to 88", "fill83", Hold(p, Vk.OemMinus, 1));
+        Expect("separator: later repeats are swallowed", "swallow swallow swallow", Hold(p, Vk.OemMinus, 3));
+        Expect("separator: the release passes", "pass", Send(p, "-Minus"));
+        Expect("separator: a fresh hold counts from one again", "pass pass pass pass pass fill83", Hold(p, Vk.OemMinus, 6));
+        Send(p, "-Minus");
+
+        p = New("full");
+        string taps = "";
+        for (int i = 0; i < 10; i++)
+        {
+            taps += Hold(p, Vk.OemMinus, 1) + " ";
+            Send(p, "-Minus");
+        }
+        Expect("separator: tapping ten times never fills", "pass pass pass pass pass pass pass pass pass pass ", taps);
+
+        p = New("full");
+        Expect("separator: = fills too", "pass pass pass pass pass fill83", Hold(p, Vk.OemEquals, 6));
+
+        p = New("full");
+        Send(p, "+LeftShift");
+        Expect("separator: Shift+- (underscore) is left alone", "pass pass pass pass pass pass pass", Hold(p, Vk.OemMinus, 7));
+
+        p = New("full");
+        Send(p, "+LeftShift");
+        Expect("separator: Shift+8 (asterisk) fills with 8", "pass pass pass pass pass fill83", Hold(p, Vk.Key8, 6));
+
+        p = New("full");
+        Expect("separator: 8 without Shift is left alone", "pass pass pass pass pass pass pass", Hold(p, Vk.Key8, 7));
+
+        p = New("full");
+        Expect("separator: numpad minus fills when the numpad is a numpad", "pass pass pass pass pass fill83", Hold(p, Vk.Subtract, 6));
+        p = New("full");
+        Expect("separator: numpad asterisk fills", "pass pass pass pass pass fill83", Hold(p, Vk.Multiply, 6));
+        p = New("mini");
+        string emulated = Hold(p, Vk.Subtract, 7);
+        Expect("separator: numpad minus is PgDn while the numpad stands in for the editing keys", "False", emulated.Contains("fill").ToString());
+
+        p = New("full");
+        Send(p, "+LeftCtrl");
+        Expect("separator: Ctrl held is left alone", "pass pass pass pass pass pass pass", Hold(p, Vk.OemMinus, 7));
+
+        p = New("full");
+        Hold(p, Vk.OemMinus, 3);
+        Send(p, "+A");
+        Expect("separator: another key restarts the count", "pass pass pass pass pass fill83", Hold(p, Vk.OemMinus, 6));
+
+        string off = Cfg.Replace("\"separator\": { \"enabled\": true", "\"separator\": { \"enabled\": false");
+        p = NewWith(off, "full");
+        Expect("separator: off passes everything", "pass pass pass pass pass pass pass", Hold(p, Vk.OemMinus, 7));
+
+        string custom = Cfg.Replace("\"count\": 88, \"afterRepeats\": 6", "\"count\": 20, \"afterRepeats\": 4");
+        p = NewWith(custom, "full");
+        Expect("separator: custom count and trigger", "pass pass pass fill17", Hold(p, Vk.OemMinus, 4));
+
+        Expect("separator: on by default at 88 after 6", "True/88/6",
+            Settings.Load(Cfg).Separator.Enabled + "/" + Settings.Load(Cfg).Separator.Count + "/" + Settings.Load(Cfg).Separator.AfterRepeats);
+        Expect("separator: written back by ToJson", "True", Settings.Load(Cfg).File.ToJson().Contains("\"separator\"").ToString());
+        Expect("separator: a file without the section keeps it on", "True",
+            Settings.Load(Cfg.Replace("  \"separator\": { \"enabled\": true, \"count\": 88, \"afterRepeats\": 6 },\n", "")).Separator.Enabled.ToString());
+        ExpectThrows("separator: afterRepeats too small", "separator.afterRepeats", Cfg.Replace("\"afterRepeats\": 6", "\"afterRepeats\": 2"));
+        ExpectThrows("separator: count not above afterRepeats", "separator.count", Cfg.Replace("\"count\": 88", "\"count\": 6"));
+    }
+
     static void WheelFilterTests()
     {
         const int Up = 120, Down = -120;
@@ -678,6 +766,7 @@ static class CoreTests
 
         WheelFilterTests();
         WheelAccelTests();
+        SeparatorTests();
         WheelLogTests();
 
         ExpectThrows("bad key name", "不認得按鍵名稱 'Foo'", Cfg.Replace("\"to\": \"Home\"", "\"to\": \"Foo\""));

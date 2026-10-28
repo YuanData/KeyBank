@@ -22,6 +22,7 @@ namespace KeyBank.Core
         public const int Delete = 0x2E;
         public const int LWin = 0x5B;
         public const int RWin = 0x5C;
+        public const int Key8 = 0x38;
         public const int Multiply = 0x6A;
         public const int Add = 0x6B;
         public const int Subtract = 0x6D;
@@ -32,6 +33,8 @@ namespace KeyBank.Core
         public const int RCtrl = 0xA3;
         public const int LAlt = 0xA4;
         public const int RAlt = 0xA5;
+        public const int OemEquals = 0xBB;
+        public const int OemMinus = 0xBD;
 
         public static bool IsModifier(int vk)
         {

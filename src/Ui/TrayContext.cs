@@ -34,6 +34,7 @@ namespace KeyBank.Ui
         internal ToolStripMenuItem AltMouseItem;
         internal ToolStripMenuItem WheelFilterItem;
         internal ToolStripMenuItem WheelAccelItem;
+        internal ToolStripMenuItem SeparatorItem;
         internal ToolStripMenuItem TuneItem;
         internal ToolStripMenuItem NumpadSixKeysItem;
         internal ToolStripMenuItem AutoStartItem;
@@ -135,6 +136,12 @@ namespace KeyBank.Ui
                 AddAccelChoice(gearNames[g - 1], g, s.WheelAccel.Enabled && s.WheelAccel.Gear == g);
             AddAccelChoice("自訂（用設定檔數值）", WheelAccelerator.CustomGear, s.WheelAccel.Enabled && s.WheelAccel.Gear == WheelAccelerator.CustomGear);
             menu.Items.Add(WheelAccelItem);
+
+            SeparatorItem = new ToolStripMenuItem("分隔線自動補滿");
+            SeparatorItem.ToolTipText = "長按 - = * 時，自動補到設定的個數，放開前不再增加。";
+            SeparatorItem.Checked = s.Separator.Enabled;
+            SeparatorItem.Click += delegate { ToggleSeparator(); };
+            menu.Items.Add(SeparatorItem);
 
             TuneItem = new ToolStripMenuItem("捲動微調…");
             TuneItem.Click += delegate { ShowTune(); };
@@ -241,6 +248,16 @@ namespace KeyBank.Ui
                 f.WheelAccel.Enabled = gear >= 0;
                 if (gear >= 0)
                     f.WheelAccel.Gear = gear;
+            });
+        }
+
+        internal void ToggleSeparator()
+        {
+            bool target = !host.Settings.Separator.Enabled;
+            Apply(delegate(ConfigFile f)
+            {
+                f.Separator = f.Separator ?? new SeparatorConfig();
+                f.Separator.Enabled = target;
             });
         }
 
