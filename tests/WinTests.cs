@@ -56,9 +56,24 @@ static partial class WinTests
         EngineTests();
         MouseQueueTests();
         WheelLogTests();
+        NewFileNameTests();
         try { Directory.Delete(SharedLogDir, true); } catch (IOException) { }
         Console.WriteLine("passed " + passed + ", failed " + failed);
         return failed == 0 ? 0 : 1;
+    }
+
+    static void NewFileNameTests()
+    {
+        DateTime t = new DateTime(2026, 11, 2, 17, 9, 0);
+        Expect("new file name", "文字文件 2026-11-02_1709.txt", NewFileName.Build(t));
+        string dir = @"C:\x";
+        Expect("free name", dir + @"\文字文件 2026-11-02_1709.txt", NewFileName.Unique(dir, t, delegate { return false; }));
+        int calls = 0;
+        string second = NewFileName.Unique(dir, t, delegate { return calls++ < 1; });
+        Expect("taken name gets (2)", dir + @"\文字文件 2026-11-02_1709 (2).txt", second);
+        calls = 0;
+        string third = NewFileName.Unique(dir, t, delegate { return calls++ < 2; });
+        Expect("taken twice gets (3)", dir + @"\文字文件 2026-11-02_1709 (3).txt", third);
     }
 
     static void InjectorTests()

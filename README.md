@@ -113,3 +113,13 @@
 | `tests\WheelCapture.ps1` | 滾輪反彈診斷：追蹤 60 秒，只印出滾輪事件的方向、位移量、與上一筆的間隔，以及有沒有被丟棄 |
 
 `src\Core` 是不依賴 Windows 的決策邏輯，`src\Win` 是鍵盤與滑鼠攔截與注入，`src\Ui` 是托盤與視窗。`tests\LiveSmoke.ps1` 與 `spikes\` 是除錯過程的留存，LiveSmoke 在目前環境不可靠，不要當成驗證依據。
+
+## 右鍵「文字文件」（取代 PowerToys 新增+）
+
+在資料夾空白處或桌面右鍵（Win11 新式選單），選「文字文件」，會建立 `文字文件 yyyy-MM-dd_HHmm.txt`，同名加 ` (2)`，不覆寫，建好後在檔案總管選取該檔。
+
+- 原理：`package\AppxManifest.xml` 是 sparse package，宣告 `IExplorerCommand` 的 COM 伺服器，由 `KeyBank.exe` 提供（KeyBank 在跑就直接用；沒在跑時 Explorer 以 `-Embedding` 啟動，閒置 20 秒後自行結束）。
+- 啟用：先開 Windows「開發人員模式」，建置後執行 `package\register.ps1`，再重新啟動檔案總管。移除用 `package\unregister.ps1`。
+- 錯誤記錄在 `%TEMP%\KeyBank.newfile.log`。
+- 尚未實機驗證 ❓：未簽章的 loose 註冊在 Win11 26200 是否成功、桌面與資料夾取得路徑是否正確。
+- 注意：`tests\run-win-tests.ps1` 目前編不過（`WinLogTests.cs` 呼叫的 `ConfigJson` 簽章不符，非本功能造成）。

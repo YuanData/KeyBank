@@ -21,6 +21,10 @@ namespace KeyBank
             bool quit = Array.IndexOf(args, "--quit") >= 0;
             string suffix = Hash(configPath ?? "");
 
+            // Explorer started us only to serve the "文字文件" context-menu command.
+            if (Array.IndexOf(args, "-Embedding") >= 0)
+                return RunComServerOnly();
+
             EventWaitHandle showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\KeyBank-show-" + suffix);
             EventWaitHandle quitEvent = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\KeyBank-quit-" + suffix);
 
@@ -42,8 +46,11 @@ namespace KeyBank
                     ui.CreateControl();
                     IntPtr forceHandle = ui.Handle;
 
+                    using (NewTextServer comServer = new NewTextServer())
                     using (Engine engine = new Engine(configPath, trace))
                     {
+                        try { comServer.Register(); }
+                        catch (Exception) { /* context-menu command is optional */ }
                         TrayContext tray = new TrayContext(engine);
                         StartListener(showEvent, quitEvent, engine, ui, tray);
                         Application.Run(tray);
@@ -54,6 +61,20 @@ namespace KeyBank
                     MessageBox.Show(ex.Message, "KeyBank 無法啟動", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return 1;
                 }
+            }
+            return 0;
+        }
+
+        static int RunComServerOnly()
+        {
+            using (NewTextServer server = new NewTextServer())
+            {
+                server.Register();
+                System.Windows.Forms.Timer idle = new System.Windows.Forms.Timer();
+                idle.Interval = 20000;
+                idle.Tick += delegate { Application.ExitThread(); };
+                idle.Start();
+                Application.Run();
             }
             return 0;
         }
