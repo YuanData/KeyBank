@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 # 需先開啟 Windows 開發人員模式。只註冊 KeyBank.NewText 套件，不改其他系統設定。
 $root = Split-Path $PSScriptRoot
 $bin = Join-Path $root 'bin'
