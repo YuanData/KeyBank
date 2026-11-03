@@ -54,6 +54,8 @@ namespace KeyBank.Win
         }
 
         // A background click gives no item, so find the folder of the Explorer window in front.
+        // Windows 11 tabs share one top-level window, so Shell.Windows lists one entry per tab with the same
+        // HWND. Taking the first match picks an arbitrary tab; the active tab is the one whose view is visible.
         static string CurrentFolder()
         {
             IntPtr fg = Native.GetForegroundWindow();
@@ -61,17 +63,60 @@ namespace KeyBank.Win
             object shell = Activator.CreateInstance(shellType);
             object windows = Call(shell, "Windows");
             int count = (int)Get(windows, "Count");
+            string firstMatch = null;
             for (int i = 0; i < count; i++)
             {
                 object w = Call(windows, "Item", i);
                 if (w == null) continue;
                 if ((long)Get(w, "HWND") != fg.ToInt64()) continue;
                 object doc = Get(w, "Document");
-                object self = Get(Get(doc, "Folder"), "Self");
-                return (string)Get(self, "Path");
+                string path = (string)Get(Get(Get(doc, "Folder"), "Self"), "Path");
+                if (firstMatch == null) firstMatch = path;
+                if (IsActiveTab(w))
+                    return path;
             }
+            if (firstMatch != null)
+                return firstMatch;
             // No Explorer window in front: the desktop.
             return Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        }
+
+        [ComImport, Guid("6D5140C1-7436-11CE-8034-00AA006009FA"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IServiceProvider
+        {
+            [PreserveSig] int QueryService(ref Guid service, ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object obj);
+        }
+
+        [ComImport, Guid("00000114-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IOleWindow
+        {
+            [PreserveSig] int GetWindow(out IntPtr hwnd);
+        }
+
+        static readonly Guid SidTopLevelBrowser = new Guid("4C96BE40-915C-11CF-99D3-00AA004AE837");
+        static readonly Guid IidOleWindow = new Guid("00000114-0000-0000-C000-000000000046");
+
+        [DllImport("user32.dll")]
+        static extern bool IsWindowVisible(IntPtr hwnd);
+
+        // The view window of a background tab is hidden; the active tab's is visible.
+        static bool IsActiveTab(object shellWindow)
+        {
+            try
+            {
+                IServiceProvider sp = (IServiceProvider)shellWindow;
+                Guid sid = SidTopLevelBrowser, iid = IidOleWindow;
+                object browser;
+                if (sp.QueryService(ref sid, ref iid, out browser) != 0 || browser == null)
+                    return false;
+                IntPtr tab;
+                return ((IOleWindow)browser).GetWindow(out tab) == 0 && IsWindowVisible(tab);
+            }
+            catch (Exception ex)
+            {
+                Trace("IsActiveTab: " + ex.Message);
+                return false;
+            }
         }
 
         static object Get(object o, string name)

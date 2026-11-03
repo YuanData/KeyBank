@@ -89,7 +89,6 @@ static class UiPreview
         try
         {
             Check(tray.EnabledItem.Text == "停用" && !tray.EnabledItem.Checked, "menu: 停用 starts unchecked");
-            Check(TrayContext.CanOpenMenuOnLeftClick, "left click can open the menu (NotifyIcon.ShowContextMenu found)");
             Check(!tray.AutoStartItem.Checked, "menu: 開機自動啟動 starts off");
             Check(tray.ErrorItem == null, "menu: no error item without LastError");
             Check(tray.ScrollItem.Text == "PgDn半屏" && tray.ScrollItem.Checked, "menu: PgDn半屏 checked");

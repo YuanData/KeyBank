@@ -113,6 +113,8 @@ namespace KeyBank.Core
         public bool Enabled = true;
         // The numpad keys stand in for the editing cluster: Insert, Delete, Home, End, Page Up, Page Down.
         public bool NumpadSixKeys = false;
+        // Long-pressing the tapHold keys (Home to PrtScr), independent of numpadSixKeys.
+        public bool TapHoldEnabled = true;
         public List<string> AltChords;
         public List<RemapRule> NumpadRemap;
         public List<TapHoldRule> TapHold;
@@ -271,6 +273,7 @@ namespace KeyBank.Core
             Dictionary<string, object> root = new Dictionary<string, object>();
             root["enabled"] = Enabled;
             root["numpadSixKeys"] = NumpadSixKeys;
+            root["tapHoldEnabled"] = TapHoldEnabled;
             root["altChords"] = EffectiveAltChords();
             root["numpadRemap"] = EffectiveNumpadRemap().ConvertAll<object>(delegate(RemapRule r)
             {
@@ -488,6 +491,7 @@ namespace KeyBank.Core
         public HashSet<string> ExcludeApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, HashSet<int>> AppChords = new Dictionary<string, HashSet<int>>();
         public bool NumpadSixKeys;
+        public bool TapHoldEnabled;
         public KeyRules Keys;
 
         public static Settings Load(string json)
@@ -512,6 +516,7 @@ namespace KeyBank.Core
             s.Enabled = f.Enabled;
             s.Upgraded = f.NeedsUpgrade;
             s.NumpadSixKeys = f.NumpadSixKeys;
+            s.TapHoldEnabled = f.TapHoldEnabled;
             s.AltMouse = f.AltMouse;
             s.WheelFilter = CompileWheelFilter(f.WheelFilter ?? new WheelFilterConfig());
             s.WheelAccel = CompileWheelAccel(f.WheelAccel ?? new WheelAccelConfig());
@@ -720,7 +725,8 @@ namespace KeyBank.Core
                 rt.Tap = ParseKey(t.Tap, r + ".tap");
                 rt.Hold = ParseKey(t.Hold, r + ".hold");
                 rt.HoldMs = t.HoldMs;
-                p.TapHold[rt.Key] = rt;
+                if (f.TapHoldEnabled)
+                    p.TapHold[rt.Key] = rt;
             }
 
             return p;
@@ -767,6 +773,7 @@ namespace KeyBank.Core
         public const string Json = @"{
   ""enabled"": true,
   ""numpadSixKeys"": false,
+  ""tapHoldEnabled"": true,
   ""altChords"": [""C"", ""X"", ""V"", ""A"", ""Z"", ""S"", ""F""],
   ""numpadRemap"": [
     { ""from"": ""PageUp"", ""to"": ""Home"" },

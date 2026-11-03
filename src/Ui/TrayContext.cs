@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using KeyBank.Core;
@@ -20,8 +19,6 @@ namespace KeyBank.Ui
         readonly NotifyIcon tray;
         readonly ContextMenuStrip menu = new ContextMenuStrip();
         readonly Control sync = new Control();
-        // NotifyIcon only opens its menu on a right click; the private method is what a right click calls.
-        static readonly MethodInfo ShowContextMenu = typeof(NotifyIcon).GetMethod("ShowContextMenu", BindingFlags.Instance | BindingFlags.NonPublic);
         Icon currentIcon;
         bool iconEnabled;
         bool iconBuilt;
@@ -37,6 +34,7 @@ namespace KeyBank.Ui
         internal ToolStripMenuItem SeparatorItem;
         internal ToolStripMenuItem TuneItem;
         internal ToolStripMenuItem NumpadSixKeysItem;
+        internal ToolStripMenuItem TapHoldItem;
         internal ToolStripMenuItem AutoStartItem;
         internal ToolStripItem ErrorItem;
         internal string LastBalloon;
@@ -71,19 +69,11 @@ namespace KeyBank.Ui
             sync.BeginInvoke(new Action(delegate { if (!disposed) Refresh(); }));
         }
 
+        // The right click opens the context menu by itself; a left click toggles KeyBank on and off.
         void OnTrayMouseClick(object sender, MouseEventArgs e)
         {
-            if (e.Button != MouseButtons.Left)
-                return;
-            if (ShowContextMenu != null)
-                ShowContextMenu.Invoke(tray, null);
-            else
-                menu.Show(Cursor.Position);
-        }
-
-        internal static bool CanOpenMenuOnLeftClick
-        {
-            get { return ShowContextMenu != null; }
+            if (e.Button == MouseButtons.Left)
+                ToggleEnabled();
         }
 
         internal void Refresh()
@@ -152,6 +142,12 @@ namespace KeyBank.Ui
             NumpadSixKeysItem.Checked = s.NumpadSixKeys;
             NumpadSixKeysItem.Click += delegate { ToggleNumpadSixKeys(); };
             menu.Items.Add(NumpadSixKeysItem);
+
+            TapHoldItem = new ToolStripMenuItem("長按 Home 變 PrtScr");
+            TapHoldItem.ToolTipText = "長按 Home 超過設定的時間，改送 PrtScr。短按照常是 Home。";
+            TapHoldItem.Checked = s.TapHoldEnabled;
+            TapHoldItem.Click += delegate { ToggleTapHold(); };
+            menu.Items.Add(TapHoldItem);
 
             menu.Items.Add(new ToolStripSeparator());
             ToolStripMenuItem view = new ToolStripMenuItem("查看目前設定…");
@@ -265,6 +261,12 @@ namespace KeyBank.Ui
         {
             bool target = !host.Settings.NumpadSixKeys;
             Apply(delegate(ConfigFile f) { f.NumpadSixKeys = target; });
+        }
+
+        internal void ToggleTapHold()
+        {
+            bool target = !host.Settings.TapHoldEnabled;
+            Apply(delegate(ConfigFile f) { f.TapHoldEnabled = target; });
         }
 
         void ToggleAutoStart()

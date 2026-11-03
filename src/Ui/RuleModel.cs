@@ -173,6 +173,8 @@ namespace KeyBank.Ui
                 if (!IsInCluster(cl, kv.Key))
                     rows.Add(Row(CatRemap, "實體 " + CapLabel(kv.Key), CapLabel(kv.Value), ""));
 
+            if (!s.TapHoldEnabled)
+                rows.Add(Row(CatHold, "長按 Home 變 PrtScr", "已關閉", ""));
             foreach (TapHoldRuntime t in p.TapHold.Values)
             {
                 string key = KeyNames.NameOf(t.Key);

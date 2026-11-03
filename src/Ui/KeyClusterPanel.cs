@@ -84,7 +84,7 @@ namespace KeyBank.Ui
                     }
             int h = LabelH + 2 * CapH + Gap
                 + Pad
-                + LabelH + CapH + BadgeH + (BadgeH > 0 ? Gap : 0) + Gap + CapH
+                + LabelH + (BadgeH > 0 ? BadgeH + Gap : 0) + CapH + Gap + CapH
                 + Pad + LabelH;
             return new Size(w + 2 * Pad, h + Pad);
         }
@@ -109,13 +109,18 @@ namespace KeyBank.Ui
             {
                 TextRenderer.DrawText(g, "目前實體", bold, new Rectangle(x0, y, 10 * U, LabelH), Ink, LeftAligned);
                 y += LabelH;
-                DrawGrid(g, x0, y, false, 0);
+                DrawGrid(g, x0, y, false);
                 y += 2 * CapH + Gap + Pad;
 
                 TextRenderer.DrawText(g, "改後", bold, new Rectangle(x0, y, 10 * U, LabelH), Ink, LeftAligned);
                 y += LabelH;
-                DrawGrid(g, x0, y, true, BadgeH > 0 ? BadgeH + Gap : 0);
-                int gridBottom = y + 2 * CapH + Gap + (BadgeH > 0 ? BadgeH + Gap : 0);
+                if (BadgeH > 0)
+                {
+                    DrawBadges(g, x0, y);
+                    y += BadgeH + Gap;
+                }
+                DrawGrid(g, x0, y, true);
+                int gridBottom = y + 2 * CapH + Gap;
 
                 if (!hasRules)
                     TextRenderer.DrawText(g, "此鍵盤沒有位置對調", Font,
@@ -127,11 +132,11 @@ namespace KeyBank.Ui
             }
         }
 
-        void DrawGrid(Graphics g, int x0, int y0, bool after, int rowExtra)
+        void DrawGrid(Graphics g, int x0, int y0, bool after)
         {
             for (int r = 0; r < 2; r++)
             {
-                int y = y0 + r * (CapH + Gap) + (r == 1 ? rowExtra : 0);
+                int y = y0 + r * (CapH + Gap);
                 for (int c = 0; c < 4; c++)
                 {
                     ClusterCell cell = cells[r][c];
@@ -150,16 +155,23 @@ namespace KeyBank.Ui
                     Color ink = cell.Fixed ? DecoText : Ink;
                     using (Font f = new Font(Font, changed ? FontStyle.Bold : FontStyle.Regular))
                         TextRenderer.DrawText(g, text, f, rect, ink, Centered);
-
-                    if (after && r == 0 && cell.Badge != null)
-                    {
-                        Rectangle br = new Rectangle(rect.X, rect.Bottom + Gap, BadgeWidth(cell.Badge), BadgeH);
-                        using (GraphicsPath bp = Rounded(br, BadgeH / 2))
-                        using (Brush bb = new SolidBrush(BadgeFace))
-                            g.FillPath(bb, bp);
-                        TextRenderer.DrawText(g, cell.Badge, Small, br, BadgeText, Centered);
-                    }
                 }
+            }
+        }
+
+        // The badge sits above its key, so the "after" grid keeps the same row spacing as the "before" grid.
+        void DrawBadges(Graphics g, int x0, int y)
+        {
+            for (int c = 0; c < 4; c++)
+            {
+                ClusterCell cell = cells[0][c];
+                if (cell.Badge == null)
+                    continue;
+                Rectangle br = new Rectangle(x0 + c * (CapW + Gap), y, BadgeWidth(cell.Badge), BadgeH);
+                using (GraphicsPath bp = Rounded(br, BadgeH / 2))
+                using (Brush bb = new SolidBrush(BadgeFace))
+                    g.FillPath(bb, bp);
+                TextRenderer.DrawText(g, cell.Badge, Small, br, BadgeText, Centered);
             }
         }
 
