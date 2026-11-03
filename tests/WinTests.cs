@@ -426,6 +426,17 @@ static partial class WinTests
         Console.WriteLine("hook: Install=" + installed + " Uninstall=" + uninstalled + " keys seen=" + seen);
     }
 
+    // Older tests still pass a profile name; profiles no longer exist, so it is ignored.
+    static string ConfigJson(bool altMouse, string profile, bool remapF12)
+    {
+        return ConfigJson(altMouse, remapF12);
+    }
+
+    static string ConfigJson(bool altMouse, bool wheelFilter, string profile, bool remapF12, string diagnostics)
+    {
+        return ConfigJson(altMouse, wheelFilter, remapF12, diagnostics);
+    }
+
     static string ConfigJson(bool altMouse, bool remapF12)
     {
         return ConfigJson(altMouse, false, remapF12);
@@ -587,7 +598,7 @@ static partial class WinTests
                 double firstMs = sw.Elapsed.TotalMilliseconds;
                 engine.KeyForTest('A', false);
                 Expect(c + " neutral config passes keys", false, swallowed);
-                Expect(c + " last key text", true, engine.LastKeyText.StartsWith("A "));
+                Expect(c + " last key text", true, engine.LastKeyText == "A");
                 Console.WriteLine(c + ": prewarm " + engine.PrewarmMs + " ms, first key round trip " + firstMs.ToString("F2") + " ms");
 
                 engine.Shutdown();
