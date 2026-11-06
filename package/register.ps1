@@ -22,9 +22,12 @@ if (-not (Test-Path $ico)) {
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = 'AntiAlias'
     $g.Clear([System.Drawing.Color]::Transparent)
-    $g.FillEllipse([System.Drawing.Brushes]::OrangeRed, 1, 1, 30, 30)
-    $f = New-Object System.Drawing.Font 'Arial', 18, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
-    $g.DrawString('+', $f, [System.Drawing.Brushes]::White, 6, 5)
+    $g.TextRenderingHint = 'AntiAlias'
+    $f = New-Object System.Drawing.Font 'Segoe UI Symbol', 26, ([System.Drawing.FontStyle]::Regular), ([System.Drawing.GraphicsUnit]::Pixel)
+    $ink = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(0x18, 0x1B, 0x28))
+    $sf = New-Object System.Drawing.StringFormat
+    $sf.Alignment = 'Center'; $sf.LineAlignment = 'Center'
+    $g.DrawString([string][char]0x2722, $f, $ink, (New-Object System.Drawing.RectangleF 0, 0, 32, 32), $sf)
     $g.Dispose()
     $icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
     $fs = [IO.File]::Create($ico); $icon.Save($fs); $fs.Close()

@@ -54,7 +54,7 @@ namespace KeyBank.Win
         const int E_NOTIMPL = unchecked((int)0x80004001);
         const int S_OK = 0;
 
-        public int GetTitle(IntPtr items, out string name) { name = "▶ 新增文字文件"; return S_OK; }
+        public int GetTitle(IntPtr items, out string name) { name = "新增文字文件(當日時間)"; return S_OK; }
         public int GetIcon(IntPtr items, out string icon)
         {
             string file = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\package\newtext.ico"));
