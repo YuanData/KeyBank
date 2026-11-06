@@ -57,8 +57,7 @@ namespace KeyBank.Win
         public int GetTitle(IntPtr items, out string name) { name = "▶ 新增文字文件"; return S_OK; }
         public int GetIcon(IntPtr items, out string icon)
         {
-            string file = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\package
-ewtext.ico"));
+            string file = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..\package\newtext.ico"));
             icon = file;
             return File.Exists(file) ? S_OK : E_NOTIMPL;
         }
