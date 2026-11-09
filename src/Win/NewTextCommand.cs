@@ -83,7 +83,7 @@ namespace KeyBank.Win
                     return S_OK;
                 string path = NewFileName.Unique(folder, DateTime.Now, File.Exists);
                 using (FileStream fs = new FileStream(path, FileMode.CreateNew)) { }
-                // Never start explorer.exe here: /select opens a new window every time. Select the new file
+                // Never launch a process here: the shell's /select switch opens a new window every time. Select the new file
                 // inside the view that was right-clicked, and let it start renaming, like the built-in New menu.
                 SelectInView(path);
             }
