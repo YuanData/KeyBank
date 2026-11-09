@@ -1,5 +1,8 @@
 ﻿$ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
+# Guard: the right-click command must never start another process. explorer.exe /select opened a new window
+# on every click (third regression); the file is selected inside the clicked view instead.
+if (Select-String -Path "$root\src\Win\NewTextCommand.cs" -Pattern 'Process\.Start|ShellExecute|explorer\.exe' -Quiet) { throw 'NewTextCommand must not launch processes or windows' }
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $bin = Join-Path $root 'bin'
 New-Item -ItemType Directory -Force $bin | Out-Null
