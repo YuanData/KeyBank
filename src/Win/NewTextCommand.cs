@@ -83,13 +83,77 @@ namespace KeyBank.Win
                     return S_OK;
                 string path = NewFileName.Unique(folder, DateTime.Now, File.Exists);
                 using (FileStream fs = new FileStream(path, FileMode.CreateNew)) { }
-                Process.Start("explorer.exe", "/select,\"" + path + "\"");
+                // Never start explorer.exe here: /select opens a new window every time. Select the new file
+                // inside the view that was right-clicked, and let it start renaming, like the built-in New menu.
+                SelectInView(path);
             }
             catch (Exception ex)
             {
                 Trace(ex.Message);
             }
             return S_OK;
+        }
+
+        [ComImport, Guid("000214E3-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        interface IShellView
+        {
+            [PreserveSig] int GetWindow(out IntPtr hwnd);
+            [PreserveSig] int ContextSensitiveHelp(bool enter);
+            [PreserveSig] int TranslateAccelerator(IntPtr msg);
+            [PreserveSig] int EnableModeless(bool enable);
+            [PreserveSig] int UIActivate(uint state);
+            [PreserveSig] int Refresh();
+            [PreserveSig] int CreateViewWindow(IntPtr prev, IntPtr settings, IntPtr browser, IntPtr rect, out IntPtr hwnd);
+            [PreserveSig] int DestroyViewWindow();
+            [PreserveSig] int GetCurrentInfo(IntPtr settings);
+            [PreserveSig] int AddPropertySheetPages(uint reserved, IntPtr fn, IntPtr lparam);
+            [PreserveSig] int SaveViewState();
+            [PreserveSig] int SelectItem(IntPtr pidlItem, uint flags);
+        }
+
+        const uint SVSI_DESELECTOTHERS = 0x4, SVSI_ENSUREVISIBLE = 0x8, SVSI_FOCUSED = 0x10, SVSI_SELECT = 0x1, SVSI_EDIT = 0x3;
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        static extern int SHParseDisplayName(string name, IntPtr bind, out IntPtr pidl, uint attrs, out uint outAttrs);
+        [DllImport("shell32.dll")]
+        static extern IntPtr ILFindLastID(IntPtr pidl);
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        static extern void SHChangeNotify(int eventId, uint flags, string item1, IntPtr item2);
+
+        // Best effort and window-free: with no site, or if the view never lists the file, the file is
+        // simply created and nothing else happens.
+        void SelectInView(string path)
+        {
+            IntPtr full = IntPtr.Zero;
+            try
+            {
+                IServiceProvider sp = site as IServiceProvider;
+                if (sp == null) return;
+                Guid sid = new Guid("CDE725B0-CCC9-4519-917E-325D72FAB4CE"), iid = new Guid("000214E3-0000-0000-C000-000000000046");
+                object view;
+                if (sp.QueryService(ref sid, ref iid, out view) != 0 || view == null) return;
+                uint attrs;
+                if (SHParseDisplayName(path, IntPtr.Zero, out full, 0, out attrs) != 0 || full == IntPtr.Zero) return;
+                IntPtr child = ILFindLastID(full);
+                SHChangeNotify(0x2, 0x5 | 0x1000, path, IntPtr.Zero); // SHCNE_CREATE, SHCNF_PATHW | SHCNF_FLUSH
+                uint flags = SVSI_SELECT | SVSI_DESELECTOTHERS | SVSI_ENSUREVISIBLE | SVSI_FOCUSED | SVSI_EDIT;
+                for (int i = 0; i < 15; i++)
+                {
+                    // The view learns about the new file asynchronously, so retry for about 1.5 seconds.
+                    if (((IShellView)view).SelectItem(child, flags) == 0)
+                        return;
+                    System.Threading.Thread.Sleep(100);
+                }
+                Trace("SelectItem gave up: " + path);
+            }
+            catch (Exception ex)
+            {
+                Trace("SelectInView: " + ex.Message);
+            }
+            finally
+            {
+                if (full != IntPtr.Zero) Marshal.FreeCoTaskMem(full);
+            }
         }
 
         // Explorer hands the command a site for the exact view that was right-clicked, so no guessing among
